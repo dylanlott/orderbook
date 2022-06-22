@@ -1,2 +1,3 @@
 # orderbook
-an experimental order matching markte engine in Go
+> an experimental order matching exchange engine in Go.
+
