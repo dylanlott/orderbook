@@ -19,6 +19,7 @@ func TestOrders(t *testing.T) {
 		placed, err := m.Place(o)
 		if err != nil {
 			t.Errorf("failed to place order: %s", err)
+			return
 		}
 		err = m.Cancel(placed.ID()) // TODO: Make Cancel take an ID
 		if err != nil {
@@ -32,6 +33,7 @@ func TestOrders(t *testing.T) {
 		placed, err := m.Place(o)
 		if err != nil {
 			t.Errorf("failed to place order: %s", err)
+			return
 		}
 		if placed.ID() == "" {
 			t.Errorf("failed to assign ID to ordr")
