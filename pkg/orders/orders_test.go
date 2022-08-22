@@ -1,6 +1,7 @@
 package orders
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ func TestOrders(t *testing.T) {
 			Orders: []Order{},
 		}
 		o := &MarketOrder{
-			Asset: Asset{
+			Asset: AssetInfo{
 				Underlying: "USD",
 				Name:       "ETH",
 			},
@@ -37,7 +38,7 @@ func TestOrders(t *testing.T) {
 		m := &market{
 			Orders: []Order{
 				&MarketOrder{
-					Asset: Asset{
+					Asset: AssetInfo{
 						Underlying: "USD",
 						Name:       "ETH",
 					},
@@ -63,5 +64,63 @@ func TestOrders(t *testing.T) {
 				t.Errorf("order should not exist in books after cancellation")
 			}
 		}
+	})
+}
+
+func TestFilling(t *testing.T) {
+	t.Run("should go fill when order is placed", func(t *testing.T) {
+		m := &market{
+			Mutex: sync.Mutex{},
+			Accounts: &accounts.InMemoryManager{
+				Accounts: map[string]*accounts.UserAccount{
+					"buyer@test.com": &accounts.UserAccount{
+						Email:          "buyer@test.com",
+						CurrentBalance: 2000.0,
+					},
+					"seller@test.com": &accounts.UserAccount{
+						Email:          "seller@test.com",
+						CurrentBalance: 1000.0,
+					},
+				},
+			},
+			Orders: []Order{
+				&MarketOrder{
+					Asset: AssetInfo{
+						Underlying: "ETH",
+						Name:       "USD",
+					},
+					UserAccount: &accounts.UserAccount{
+						Email:          "seller@test.com",
+						CurrentBalance: 1200.0,
+					},
+					UUID:           "seller123",
+					OpenQuantity:   1,
+					FilledQuantity: 0,
+					PlacedAt:       time.Now(),
+					MarketPrice:    50.0,
+				},
+			},
+		}
+		o := &MarketOrder{
+			// Buy-side order
+			Asset: AssetInfo{
+				Underlying: "USD",
+				Name:       "ETH",
+			},
+			UserAccount: &accounts.UserAccount{
+				Email:          "buyer@test.com",
+				CurrentBalance: 1200.0,
+			},
+			UUID:           "buyer456",
+			OpenQuantity:   1,
+			FilledQuantity: 0,
+			PlacedAt:       time.Now(),
+			MarketPrice:    50.0,
+		}
+		order, err := m.Place(o)
+		if err != nil {
+			t.Errorf("failed to place market order: %v", err)
+		}
+		t.Logf("order: %+v", order)
 	})
 }
