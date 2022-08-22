@@ -2,6 +2,8 @@ package accounts
 
 import (
 	"fmt"
+	"log"
+	"sync"
 )
 
 // Transaction specifies an interface for transactions between Accounts.
@@ -11,6 +13,8 @@ type Transaction interface {
 
 // AccountManager defines a simple CRUD interface for managing accounts.
 type AccountManager interface {
+	Transaction
+
 	Get(id string) (Account, error)
 	Create(id string, acct Account) (Account, error)
 	Update(id string, acct Account) (Account, error)
@@ -44,11 +48,15 @@ func (u *UserAccount) Balance() float64 {
 
 // InMemoryManager is an in memory account manager for testing purposes.
 type InMemoryManager struct {
+	sync.Mutex
+
 	Accounts map[string]*UserAccount
 }
 
 // Get returns an account
 func (i *InMemoryManager) Get(id string) (Account, error) {
+	i.Lock()
+	defer i.Unlock()
 	if v, ok := i.Accounts[id]; ok {
 		return v, nil
 	}
@@ -61,13 +69,41 @@ func (i *InMemoryManager) Create(email string, account Account) (Account, error)
 		Email:          email,
 		CurrentBalance: 0.0,
 	}
+	i.Lock()
+	defer i.Unlock()
 	i.Accounts[email] = a
 	return a, nil
 }
 
 // Tx transacts across accounts in the InMemoryManager.
-func (i *InMemoryManager) Tx(from string, to string, amount float64) error {
-	panic("not implemented") // TODO: implement transactions across amounts.
+func (i *InMemoryManager) Tx(from string, to string, amount float64) ([]Account, error) {
+	i.Lock()
+	defer i.Unlock()
+	fromAcct, ok := i.Accounts[from]
+	if !ok {
+		return nil, fmt.Errorf("account %s does not exist", from)
+	}
+
+	toAcct, ok := i.Accounts[to]
+	if !ok {
+		return nil, fmt.Errorf("account %s does not exist", to)
+	}
+
+	if fromAcct.Balance() < amount {
+		return nil, fmt.Errorf("insufficient balance %d in %s", amount, fromAcct)
+	}
+
+	// everything checks out so let's do the math now
+	fromAcct.CurrentBalance = fromAcct.CurrentBalance - amount
+	toAcct.CurrentBalance = toAcct.CurrentBalance + amount
+
+	// save the udpated account balances to our InMemoryManager.
+	i.Accounts[from] = fromAcct
+	i.Accounts[to] = toAcct
+
+	log.Printf("transaction: moved %d from %s to account %s", amount, from, to)
+
+	return []Account{fromAcct, toAcct}, nil
 }
 
 // Update updates the account id with provided Account information.

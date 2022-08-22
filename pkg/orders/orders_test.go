@@ -117,10 +117,9 @@ func TestFilling(t *testing.T) {
 			PlacedAt:       time.Now(),
 			MarketPrice:    50.0,
 		}
-		order, err := m.Place(o)
+		_, err := m.Place(o)
 		if err != nil {
 			t.Errorf("failed to place market order: %v", err)
 		}
-		t.Logf("order: %+v", order)
 	})
 }

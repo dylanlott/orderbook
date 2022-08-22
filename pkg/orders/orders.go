@@ -109,29 +109,48 @@ type market struct {
 }
 
 // Fill returns the fill algorithm for this type of order.
-func (fm *market) Fill(ctx context.Context, order Order) {
-	log.Printf("attempting to fill order [%+v]", order)
+func (fm *market) Fill(ctx context.Context, fillOrder Order) {
+	// this function fulfills a fillOrder in a limit fill fashion
+	log.Printf("attempting to fill order [%+v]", fillOrder)
 	// NB: naive implementation: loop until we find a match and then fill.
 	// loop until we fill this order
 	for {
-		// loop over the orders repeatedly
-		for _, ord := range fm.Orders {
+		// loop over the orders repeatedly until filled
+		for _, bookOrder := range fm.Orders {
 			// detect an order that fits our criteria
-			if order.AssetInfo().Name == ord.AssetInfo().Underlying {
+			if fillOrder.AssetInfo().Name == bookOrder.AssetInfo().Underlying {
 				// ### Buy Side Order
-				log.Printf("asset info: %v", order.AssetInfo())
-				log.Printf("detected buy-side match: %v", order)
+				// log.Printf("asset info: %v", fillOrder.AssetInfo())
+				// log.Printf("detected buy-side match: %+v to %+v", fillOrder, bookOrder)
 
 				// TODO: attach accounts to the market
+				fillerBalance := fillOrder.Owner().Balance()
+				total := float64(fillOrder.Quantity()) * fillOrder.Price()
 
-				// we need to clear up the Asset field and method name collision
-				// Then we need to distinguish between buy and sell side orders.
-				// Then we need to compare buy vs sell side orders that match a price
-				// and if all of those conditions are met, we need to determine the quantity.
-				// this becomes a packing problem at this point.
-				// if unfilled units, continue filling by recursing through this function.
-				// if enough exists for it to fill itself up, then it should signal done.
-				// it should then atomically charge the buyer and pay the seller.
+				if total > fillerBalance {
+					log.Printf("insufficient balance, unable to fill")
+					return
+				}
+
+				// cast as a MarketOrder
+				// TODO: Order's should have some functionality to mark them as filled
+				// so that we avoid having to hard-cast them.
+				mo, ok := fillOrder.(*MarketOrder)
+				if !ok {
+					panic("failed to cast fillOrder as MarketOrder")
+				}
+
+				// attempt to transfer balances.
+				_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
+				if err != nil {
+					log.Printf("transaction failed: %s", err)
+					return
+				}
+
+				mo.OpenQuantity = 0
+				mo.FilledQuantity = fillOrder.Quantity()
+
+				return
 			}
 		}
 	}
