@@ -90,7 +90,7 @@ func (i *InMemoryManager) Tx(from string, to string, amount float64) ([]Account,
 	}
 
 	if fromAcct.Balance() < amount {
-		return nil, fmt.Errorf("insufficient balance %d in %s", amount, fromAcct)
+		return nil, fmt.Errorf("insufficient balance %v in %v", amount, fromAcct)
 	}
 
 	// everything checks out so let's do the math now
@@ -101,7 +101,7 @@ func (i *InMemoryManager) Tx(from string, to string, amount float64) ([]Account,
 	i.Accounts[from] = fromAcct
 	i.Accounts[to] = toAcct
 
-	log.Printf("transaction: moved %d from %s to account %s", amount, from, to)
+	log.Printf("transaction: moved %v from %s to account %s", amount, from, to)
 
 	return []Account{fromAcct, toAcct}, nil
 }

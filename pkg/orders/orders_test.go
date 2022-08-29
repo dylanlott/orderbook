@@ -85,6 +85,7 @@ func TestFilling(t *testing.T) {
 			},
 			Orders: []Order{
 				&MarketOrder{
+					UUID: "seller123",
 					Asset: AssetInfo{
 						Underlying: "ETH",
 						Name:       "USD",
@@ -93,7 +94,6 @@ func TestFilling(t *testing.T) {
 						Email:          "seller@test.com",
 						CurrentBalance: 1200.0,
 					},
-					UUID:           "seller123",
 					OpenQuantity:   1,
 					FilledQuantity: 0,
 					PlacedAt:       time.Now(),
@@ -103,6 +103,7 @@ func TestFilling(t *testing.T) {
 		}
 		o := &MarketOrder{
 			// Buy-side order
+			UUID: "buyer456",
 			Asset: AssetInfo{
 				Underlying: "USD",
 				Name:       "ETH",
@@ -111,7 +112,6 @@ func TestFilling(t *testing.T) {
 				Email:          "buyer@test.com",
 				CurrentBalance: 1200.0,
 			},
-			UUID:           "buyer456",
 			OpenQuantity:   1,
 			FilledQuantity: 0,
 			PlacedAt:       time.Now(),

@@ -132,9 +132,9 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 					return
 				}
 
-				// cast as a MarketOrder
 				// TODO: Order's should have some functionality to mark them as filled
 				// so that we avoid having to hard-cast them.
+				// This hard-cast is an abstraction leakage because it relies on the concrete type.
 				mo, ok := fillOrder.(*MarketOrder)
 				if !ok {
 					panic("failed to cast fillOrder as MarketOrder")
@@ -149,6 +149,8 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 
 				mo.OpenQuantity = 0
 				mo.FilledQuantity = fillOrder.Quantity()
+
+				// TODO: remove mo from open orders
 
 				return
 			}
