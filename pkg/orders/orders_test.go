@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
+	"github.com/matryer/is"
 )
 
 func TestOrders(t *testing.T) {
@@ -121,5 +122,31 @@ func TestFilling(t *testing.T) {
 		if err != nil {
 			t.Errorf("failed to place market order: %v", err)
 		}
+	})
+}
+
+func TestTreeNodeInsert(t *testing.T) {
+	t.Run("insert right", func(t *testing.T) {
+		is := is.New(t)
+		root := &TreeNode{val: 0.0}
+		o := &MarketOrder{
+			// greater than 0 means it should be the right side
+			MarketPrice: 10.00,
+		}
+		err := root.Insert(o)
+		is.NoErr(err)
+		is.True(root.right != nil)
+	})
+
+	t.Run("insert left", func(t *testing.T) {
+		is := is.New(t)
+		root := &TreeNode{val: 10.0}
+		o := &MarketOrder{
+			// greater than 0 means it should be the right side
+			MarketPrice: 5.00,
+		}
+		err := root.Insert(o)
+		is.NoErr(err)
+		is.True(root.left != nil)
 	})
 }

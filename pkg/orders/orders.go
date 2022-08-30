@@ -89,6 +89,7 @@ func (mo *MarketOrder) OrderType() string {
 	if mo.Asset.Name == "USD" {
 		return "BUY"
 	}
+
 	return "SELL"
 }
 
@@ -100,12 +101,54 @@ type Market interface {
 	Cancel(orderID string) error
 }
 
+// TreeNode represents a tree of nodes that maintain lists of Orders at that price.
+type TreeNode struct {
+	val    float64 // to represent price
+	orders []Order
+	right  *TreeNode
+	left   *TreeNode
+}
+
 // market manages a set of Orders.
 type market struct {
 	sync.Mutex
 
 	Accounts accounts.AccountManager
-	Orders   []Order
+
+	Orders    []Order
+	OrderTrie *TreeNode
+}
+
+// Insert will add an Order to the Tree.
+func (t *TreeNode) Insert(o Order) error {
+	if t == nil {
+		return fmt.Errorf("tree does not exist")
+	}
+
+	if t.val == o.Price() {
+		// when we find a price match for the order,
+		// insert the order into this node's order list.
+		t.orders = append(t.orders, o)
+		return nil
+	}
+
+	if t.val > o.Price() {
+		if t.left == nil {
+			t.left = &TreeNode{val: o.Price()}
+			return nil
+		}
+		return t.left.Insert(o)
+	}
+
+	if t.val < o.Price() {
+		if t.right == nil {
+			t.right = &TreeNode{val: o.Price()}
+			return nil
+		}
+		return t.right.Insert(o)
+	}
+
+	return nil
 }
 
 // Fill returns the fill algorithm for this type of order.
@@ -120,10 +163,7 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 			// detect an order that fits our criteria
 			if fillOrder.AssetInfo().Name == bookOrder.AssetInfo().Underlying {
 				// ### Buy Side Order
-				// log.Printf("asset info: %v", fillOrder.AssetInfo())
-				// log.Printf("detected buy-side match: %+v to %+v", fillOrder, bookOrder)
 
-				// TODO: attach accounts to the market
 				fillerBalance := fillOrder.Owner().Balance()
 				total := float64(fillOrder.Quantity()) * fillOrder.Price()
 
@@ -169,8 +209,10 @@ func (fm *market) Place(order Order) (Order, error) {
 	log.Printf("order owner [%+v]", order.Owner().UserID())
 
 	fm.Mutex.Lock()
+
 	// TODO: upgrade to a trie structure for faster searching.
 	fm.Orders = append(fm.Orders, order)
+
 	fm.Mutex.Unlock()
 
 	log.Printf("placed order [%+v]", order)
