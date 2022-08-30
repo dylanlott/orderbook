@@ -137,7 +137,6 @@ func TestTreeNodeInsert(t *testing.T) {
 		is.NoErr(err)
 		is.True(root.right != nil)
 	})
-
 	t.Run("insert left", func(t *testing.T) {
 		is := is.New(t)
 		root := &TreeNode{val: 10.0}
@@ -148,5 +147,17 @@ func TestTreeNodeInsert(t *testing.T) {
 		err := root.Insert(o)
 		is.NoErr(err)
 		is.True(root.left != nil)
+	})
+	t.Run("insert order at equal price", func(t *testing.T) {
+		is := is.New(t)
+		root := &TreeNode{val: 10.0}
+		o := &MarketOrder{
+			// greater than 0 means it should be the right side
+			MarketPrice: 10.0,
+		}
+		err := root.Insert(o)
+		is.NoErr(err)
+		is.True(len(root.orders) > 0)
+		is.True(root.Orders[0] == o)
 	})
 }

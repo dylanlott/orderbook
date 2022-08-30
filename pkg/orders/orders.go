@@ -128,6 +128,9 @@ func (t *TreeNode) Insert(o Order) error {
 	if t.val == o.Price() {
 		// when we find a price match for the order,
 		// insert the order into this node's order list.
+		if t.orders == nil {
+			t.orders = make([]Order, 0)
+		}
 		t.orders = append(t.orders, o)
 		return nil
 	}
