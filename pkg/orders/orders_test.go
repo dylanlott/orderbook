@@ -158,6 +158,6 @@ func TestTreeNodeInsert(t *testing.T) {
 		err := root.Insert(o)
 		is.NoErr(err)
 		is.True(len(root.orders) > 0)
-		is.True(root.Orders[0] == o)
+		is.True(root.orders[0] == o)
 	})
 }

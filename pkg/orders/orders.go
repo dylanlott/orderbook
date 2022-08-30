@@ -122,7 +122,7 @@ type market struct {
 // Insert will add an Order to the Tree.
 func (t *TreeNode) Insert(o Order) error {
 	if t == nil {
-		return fmt.Errorf("tree does not exist")
+		t = &TreeNode{val: o.Price()}
 	}
 
 	if t.val == o.Price() {
