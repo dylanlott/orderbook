@@ -4,83 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
 	"sync"
-	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
 )
 
 // Maybe it's premature to have the Order interface.
-
-// Order defines the interface for an order in our system.
-type Order interface {
-	ID() string
-	Owner() accounts.Account
-	AssetInfo() AssetInfo
-	Price() float64  // returns the price of the amount filled.
-	Quantity() int64 // returns the number of units ordered.
-	CreatedAt() time.Time
-}
-
-// Filler defines an extensible function for filling orders.
-// It is called as a goroutine.
-type Filler interface {
-	Fill(ctx context.Context)
-}
-
-// AssetInfo defines the underlying and name for an asset.
-type AssetInfo struct {
-	Underlying string
-	Name       string
-}
-
-// MarketOrder fulfills Order and is a record of a single order
-// in our exchange.
-type MarketOrder struct {
-	Asset          AssetInfo
-	UserAccount    *accounts.UserAccount
-	UUID           string
-	OpenQuantity   int64
-	FilledQuantity int64
-	PlacedAt       time.Time
-	MarketPrice    float64
-}
-
-// ID returns the MarketOrder's UUID
-func (mo *MarketOrder) ID() string {
-	return mo.UUID
-}
-
-// Filled returns the number of units for the order that have been filled.
-func (mo *MarketOrder) Filled() int64 {
-	return mo.FilledQuantity
-}
-
-// Price returns the market price of the market order.
-func (mo *MarketOrder) Price() float64 {
-	return mo.MarketPrice
-}
-
-// Quantity returns the quantity of the asset being purchased.
-func (mo *MarketOrder) Quantity() int64 {
-	return mo.OpenQuantity
-}
-
-// Owner returns the account for the order that should be charged.
-func (mo *MarketOrder) Owner() accounts.Account {
-	return mo.UserAccount
-}
-
-// CreatedAt returns the time the order was created for time priority organization
-func (mo *MarketOrder) CreatedAt() time.Time {
-	return mo.PlacedAt
-}
-
-// AssetInfo returns the asset information for the market order.
-func (mo *MarketOrder) AssetInfo() AssetInfo {
-	return mo.Asset
-}
 
 // Market defines the most outer API for our books.
 type Market interface {
@@ -88,14 +17,6 @@ type Market interface {
 	Orderbook() ([]Order, error)
 	Place(order Order) (Order, error)
 	Cancel(orderID string) error
-}
-
-// TreeNode represents a tree of nodes that maintain lists of Orders at that price.
-type TreeNode struct {
-	val    float64 // to represent price
-	orders []Order
-	right  *TreeNode
-	left   *TreeNode
 }
 
 // market manages a set of Orders.
@@ -106,90 +27,6 @@ type market struct {
 
 	Orders    []Order
 	OrderTrie *TreeNode
-}
-
-// Insert will add an Order to the Tree.
-func (t *TreeNode) Insert(o Order) error {
-	if t == nil {
-		t = &TreeNode{val: o.Price()}
-	}
-
-	if t.val == o.Price() {
-		// when we find a price match for the order,
-		// insert the order into this node's order list.
-		if t.orders == nil {
-			t.orders = make([]Order, 0)
-		}
-		t.orders = append(t.orders, o)
-		return nil
-	}
-
-	if t.val > o.Price() {
-		if t.left == nil {
-			t.left = &TreeNode{val: o.Price()}
-			return t.left.Insert(o)
-		}
-		return t.left.Insert(o)
-	}
-
-	if t.val < o.Price() {
-		if t.right == nil {
-			t.right = &TreeNode{val: o.Price()}
-			return t.right.Insert(o)
-		}
-		return t.right.Insert(o)
-	}
-
-	panic("should not get here; this smells like a bug")
-}
-
-// Find returns the highest priority order for a given price point.
-// It returns the Order or an error.
-// * If it can't find an order at that exact price, it will search for
-// a cheaper order if one exists.
-func (t *TreeNode) Find(price float64) (Order, error) {
-	if t == nil {
-		return nil, fmt.Errorf("err no exist")
-	}
-
-	if price == t.val {
-		if len(t.orders) > 0 {
-			return t.orders[0], nil
-		}
-		return nil, fmt.Errorf("no orders at this price")
-	}
-
-	if price > t.val {
-		if t.right != nil {
-			return t.right.Find(price)
-		}
-	}
-
-	if price < t.val {
-		if t.left != nil {
-			return t.left.Find(price)
-		}
-	}
-
-	return nil, fmt.Errorf("ErrFind")
-}
-
-//PrintInorder prints the elements in left-current-right order.
-func (t *TreeNode) PrintInorder() {
-	if t == nil {
-		return
-	}
-	t.left.PrintInorder()
-	fmt.Printf("%+v\n", t.val)
-	t.right.PrintInorder()
-}
-
-// sortByTimePriority sorts orders by oldest to newest
-func sortByTimePriority(orders []Order) []Order {
-	sort.SliceStable(orders, func(i, j int) bool {
-		return orders[i].CreatedAt().After(orders[j].CreatedAt())
-	})
-	return orders
 }
 
 // Fill returns the fill algorithm for this type of order.
