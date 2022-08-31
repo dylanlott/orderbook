@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -17,11 +18,9 @@ type Order interface {
 	ID() string
 	Owner() accounts.Account
 	AssetInfo() AssetInfo
-	Timestamp() time.Time
-	Filled() int64   // returns the amount filled
 	Price() float64  // returns the price of the amount filled.
 	Quantity() int64 // returns the number of units ordered.
-	OrderType() string
+	CreatedAt() time.Time
 }
 
 // Filler defines an extensible function for filling orders.
@@ -68,29 +67,19 @@ func (mo *MarketOrder) Quantity() int64 {
 	return mo.OpenQuantity
 }
 
-// Timestamp returns the time the order was placed.
-func (mo *MarketOrder) Timestamp() time.Time {
-	return mo.PlacedAt
-}
-
 // Owner returns the account for the order that should be charged.
 func (mo *MarketOrder) Owner() accounts.Account {
 	return mo.UserAccount
 }
 
+// CreatedAt returns the time the order was created for time priority organization
+func (mo *MarketOrder) CreatedAt() time.Time {
+	return mo.PlacedAt
+}
+
 // AssetInfo returns the asset information for the market order.
 func (mo *MarketOrder) AssetInfo() AssetInfo {
 	return mo.Asset
-}
-
-// OrderType returns the type of order
-func (mo *MarketOrder) OrderType() string {
-	// TODO: this is a code smell, handle this with a type or interface.
-	if mo.Asset.Name == "USD" {
-		return "BUY"
-	}
-
-	return "SELL"
 }
 
 // Market defines the most outer API for our books.
@@ -138,7 +127,7 @@ func (t *TreeNode) Insert(o Order) error {
 	if t.val > o.Price() {
 		if t.left == nil {
 			t.left = &TreeNode{val: o.Price()}
-			return nil
+			return t.left.Insert(o)
 		}
 		return t.left.Insert(o)
 	}
@@ -146,12 +135,61 @@ func (t *TreeNode) Insert(o Order) error {
 	if t.val < o.Price() {
 		if t.right == nil {
 			t.right = &TreeNode{val: o.Price()}
-			return nil
+			return t.right.Insert(o)
 		}
 		return t.right.Insert(o)
 	}
 
-	return nil
+	panic("should not get here; this smells like a bug")
+}
+
+// Find returns the highest priority order for a given price point.
+// It returns the Order or an error.
+// * If it can't find an order at that exact price, it will search for
+// a cheaper order if one exists.
+func (t *TreeNode) Find(price float64) (Order, error) {
+	if t == nil {
+		return nil, fmt.Errorf("err no exist")
+	}
+
+	if price == t.val {
+		if len(t.orders) > 0 {
+			return t.orders[0], nil
+		}
+		return nil, fmt.Errorf("no orders at this price")
+	}
+
+	if price > t.val {
+		if t.right != nil {
+			return t.right.Find(price)
+		}
+	}
+
+	if price < t.val {
+		if t.left != nil {
+			return t.left.Find(price)
+		}
+	}
+
+	return nil, fmt.Errorf("ErrFind")
+}
+
+//PrintInorder prints the elements in left-current-right order.
+func (t *TreeNode) PrintInorder() {
+	if t == nil {
+		return
+	}
+	t.left.PrintInorder()
+	fmt.Printf("%+v\n", t.val)
+	t.right.PrintInorder()
+}
+
+// sortByTimePriority sorts orders by oldest to newest
+func sortByTimePriority(orders []Order) []Order {
+	sort.SliceStable(orders, func(i, j int) bool {
+		return orders[i].CreatedAt().After(orders[j].CreatedAt())
+	})
+	return orders
 }
 
 // Fill returns the fill algorithm for this type of order.
@@ -213,8 +251,8 @@ func (fm *market) Place(order Order) (Order, error) {
 
 	fm.Mutex.Lock()
 
-	// TODO: upgrade to a trie structure for faster searching.
 	fm.Orders = append(fm.Orders, order)
+	fm.OrderTrie.Insert(order)
 
 	fm.Mutex.Unlock()
 

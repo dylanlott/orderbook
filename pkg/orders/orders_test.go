@@ -130,7 +130,6 @@ func TestTreeNodeInsert(t *testing.T) {
 		is := is.New(t)
 		root := &TreeNode{val: 0.0}
 		o := &MarketOrder{
-			// greater than 0 means it should be the right side
 			MarketPrice: 10.00,
 		}
 		err := root.Insert(o)
@@ -141,7 +140,6 @@ func TestTreeNodeInsert(t *testing.T) {
 		is := is.New(t)
 		root := &TreeNode{val: 10.0}
 		o := &MarketOrder{
-			// greater than 0 means it should be the right side
 			MarketPrice: 5.00,
 		}
 		err := root.Insert(o)
@@ -152,7 +150,6 @@ func TestTreeNodeInsert(t *testing.T) {
 		is := is.New(t)
 		root := &TreeNode{val: 10.0}
 		o := &MarketOrder{
-			// greater than 0 means it should be the right side
 			MarketPrice: 10.0,
 		}
 		err := root.Insert(o)
@@ -160,4 +157,38 @@ func TestTreeNodeInsert(t *testing.T) {
 		is.True(len(root.orders) > 0)
 		is.True(root.orders[0] == o)
 	})
+}
+
+func TestTreeNodeFind(t *testing.T) {
+	is := is.New(t)
+	root := &TreeNode{val: 10.0}
+	err := root.Insert(&MarketOrder{
+		UUID:        "0xACAB",
+		MarketPrice: 10.0,
+	})
+	is.NoErr(err)
+	err = root.Insert(&MarketOrder{
+		UUID:        "0xDEAD",
+		MarketPrice: 5.0,
+	})
+	is.NoErr(err)
+	err = root.Insert(&MarketOrder{
+		UUID:        "0xBEEF",
+		MarketPrice: 15.0,
+	})
+	is.NoErr(err)
+	err = root.Insert(&MarketOrder{
+		UUID:        "0xDEED",
+		MarketPrice: 13.0,
+	})
+	is.NoErr(err)
+	err = root.Insert(&MarketOrder{
+		UUID:        "0xDEED",
+		MarketPrice: 8.5,
+	})
+	is.NoErr(err)
+	root.PrintInorder()
+	ord, err := root.Find(15.0)
+	is.NoErr(err)
+	is.True(ord.ID() == "0xBEEF")
 }
