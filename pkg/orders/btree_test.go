@@ -51,7 +51,7 @@ func TestTreeNodeFind(t *testing.T) {
 func TestTreeIterate(t *testing.T) {
 	is := is.New(t)
 	root := setupTree(t)
-	root.Iterate(&MarketOrder{MarketPrice: 15.0}, func(bo Order) {
+	root.Match(&MarketOrder{MarketPrice: 15.0}, func(bo Order) {
 		t.Logf("book order found: %v", bo)
 		is.True(bo != nil)
 	})

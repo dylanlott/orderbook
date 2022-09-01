@@ -83,9 +83,9 @@ func (t *TreeNode) Find(price float64) (Order, error) {
 	panic("should not get here; this smells like a bug")
 }
 
-// Iterate will iterate through the tree based on the price of the
+// Match will iterate through the tree based on the price of the
 // fillOrder and finds a bookOrder that matches its price.
-func (t *TreeNode) Iterate(fillOrder Order, cb func(bookOrder Order)) {
+func (t *TreeNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 	if t == nil {
 		cb(nil)
 		return
@@ -100,14 +100,14 @@ func (t *TreeNode) Iterate(fillOrder Order, cb func(bookOrder Order)) {
 
 	if fillOrder.Price() > t.val {
 		if t.right != nil {
-			t.right.Iterate(fillOrder, cb)
+			t.right.Match(fillOrder, cb)
 			return
 		}
 	}
 
 	if fillOrder.Price() < t.val {
 		if t.left != nil {
-			t.left.Iterate(fillOrder, cb)
+			t.left.Match(fillOrder, cb)
 			return
 		}
 	}

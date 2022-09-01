@@ -38,7 +38,7 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 	log.Printf("attempting to fill order [%+v]", fillOrder)
 
 	for {
-		fm.OrderTrie.Iterate(fillOrder, func(bookOrder Order) {
+		fm.OrderTrie.Match(fillOrder, func(bookOrder Order) {
 			if err := fm.attemptFill(fillOrder, bookOrder); err != nil {
 				log.Printf("attemptFill failed: %v", err)
 			}
@@ -55,6 +55,7 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 // * It removes the market order from the orderbook if it fully fills
 // the order.
 func (fm *market) attemptFill(fillOrder, bookOrder Order) error {
+	// TODO: keep buy and sell side orders separately so as to avoid this check.
 	if fillOrder.AssetInfo().Name == bookOrder.AssetInfo().Underlying {
 		fillerBalance := fillOrder.Owner().Balance()
 		total := float64(fillOrder.Quantity()) * fillOrder.Price()
