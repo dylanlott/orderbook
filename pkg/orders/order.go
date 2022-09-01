@@ -1,7 +1,6 @@
 package orders
 
 import (
-	"context"
 	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
@@ -15,12 +14,6 @@ type Order interface {
 	Price() float64  // returns the price of the amount filled.
 	Quantity() int64 // returns the number of units ordered.
 	CreatedAt() time.Time
-}
-
-// Filler defines an extensible function for filling orders.
-// It is called as a goroutine.
-type Filler interface {
-	Fill(ctx context.Context)
 }
 
 // AssetInfo defines the underlying and name for an asset.

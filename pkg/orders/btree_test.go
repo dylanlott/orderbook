@@ -42,6 +42,36 @@ func TestTreeNodeInsert(t *testing.T) {
 
 func TestTreeNodeFind(t *testing.T) {
 	is := is.New(t)
+	root := setupTree(t)
+	ord, err := root.Find(15.0)
+	is.NoErr(err)
+	is.True(ord.ID() == "0xBEEF")
+}
+
+func TestTreeIterate(t *testing.T) {
+	is := is.New(t)
+	root := setupTree(t)
+	root.Iterate(&MarketOrder{MarketPrice: 15.0}, func(bo Order) {
+		t.Logf("book order found: %v", bo)
+		is.True(bo != nil)
+	})
+}
+
+func TestTreeOrders(t *testing.T) {
+	is := is.New(t)
+	root := setupTree(t)
+	list, err := root.Orders(15.0)
+	is.NoErr(err)
+	is.Equal(list, []Order{
+		&MarketOrder{
+			UUID:        "0xBEEF",
+			MarketPrice: 15.0,
+		},
+	})
+}
+
+func setupTree(t *testing.T) *TreeNode {
+	is := is.New(t)
 	root := &TreeNode{val: 10.0}
 	err := root.Insert(&MarketOrder{
 		UUID:        "0xACAB",
@@ -68,8 +98,5 @@ func TestTreeNodeFind(t *testing.T) {
 		MarketPrice: 8.5,
 	})
 	is.NoErr(err)
-	root.PrintInorder()
-	ord, err := root.Find(15.0)
-	is.NoErr(err)
-	is.True(ord.ID() == "0xBEEF")
+	return root
 }

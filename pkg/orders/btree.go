@@ -6,6 +6,9 @@ import (
 )
 
 // TreeNode represents a tree of nodes that maintain lists of Orders at that price.
+// * Each TreeNode maintains an ordered list of Orders that share the same price.
+// * This tree is a simple binary tree, where left nodes are lesser prices and right
+// nodes are greater in price than the current node.
 type TreeNode struct {
 	val    float64 // to represent price
 	orders []Order
@@ -13,15 +16,17 @@ type TreeNode struct {
 	left   *TreeNode
 }
 
-// Insert will add an Order to the Tree.
+// Insert will add an Order to the Tree. It traverses until it finds the right price
+// or where the price should exist and creates a price node if it doesn't exist, then
+// adds the Order to that price node.
 func (t *TreeNode) Insert(o Order) error {
 	if t == nil {
 		t = &TreeNode{val: o.Price()}
 	}
 
 	if t.val == o.Price() {
-		// when we find a price match for the order,
-		// insert the order into this node's order list.
+		// when we find a price match for the Order's price,
+		// insert the Order into this node's Order list.
 		if t.orders == nil {
 			t.orders = make([]Order, 0)
 		}
@@ -29,7 +34,7 @@ func (t *TreeNode) Insert(o Order) error {
 		return nil
 	}
 
-	if t.val > o.Price() {
+	if o.Price() < t.val {
 		if t.left == nil {
 			t.left = &TreeNode{val: o.Price()}
 			return t.left.Insert(o)
@@ -37,7 +42,7 @@ func (t *TreeNode) Insert(o Order) error {
 		return t.left.Insert(o)
 	}
 
-	if t.val < o.Price() {
+	if o.Price() > t.val {
 		if t.right == nil {
 			t.right = &TreeNode{val: o.Price()}
 			return t.right.Insert(o)
@@ -48,8 +53,7 @@ func (t *TreeNode) Insert(o Order) error {
 	panic("should not get here; this smells like a bug")
 }
 
-// Find returns the highest priority order for a given price point.
-// It returns the Order or an error.
+// Find returns the highest priority Order for a given price point.
 // * If it can't find an order at that exact price, it will search for
 // a cheaper order if one exists.
 func (t *TreeNode) Find(price float64) (Order, error) {
@@ -76,7 +80,64 @@ func (t *TreeNode) Find(price float64) (Order, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("ErrFind")
+	panic("should not get here; this smells like a bug")
+}
+
+// Iterate will iterate through the tree based on the price of the
+// fillOrder and finds a bookOrder that matches its price.
+func (t *TreeNode) Iterate(fillOrder Order, cb func(bookOrder Order)) {
+	if t == nil {
+		cb(nil)
+		return
+	}
+
+	if fillOrder.Price() == t.val {
+		// callback with first order in the list
+		bookOrder := t.orders[0]
+		cb(bookOrder)
+		return
+	}
+
+	if fillOrder.Price() > t.val {
+		if t.right != nil {
+			t.right.Iterate(fillOrder, cb)
+			return
+		}
+	}
+
+	if fillOrder.Price() < t.val {
+		if t.left != nil {
+			t.left.Iterate(fillOrder, cb)
+			return
+		}
+	}
+
+	panic("should not get here; this smells like a bug")
+}
+
+// Orders returns the list of Orders for a given price.
+func (t *TreeNode) Orders(price float64) ([]Order, error) {
+	if t == nil {
+		return nil, fmt.Errorf("order tree is nil")
+	}
+
+	if t.val == price {
+		return t.orders, nil
+	}
+
+	if price > t.val {
+		if t.right != nil {
+			return t.right.Orders(price)
+		}
+	}
+
+	if price < t.val {
+		if t.left != nil {
+			return t.left.Orders(price)
+		}
+	}
+
+	panic("should not get here; this smells like a bug")
 }
 
 //PrintInorder prints the elements in left-current-right order.
