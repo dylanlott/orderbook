@@ -43,7 +43,6 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 				log.Printf("attemptFill failed: %v", err)
 			}
 
-			log.Printf("attempt fill %+v", fm)
 			// TODO: break and return if fill order is filled
 			// TODO: send on channel to alert when filled
 			return
@@ -57,29 +56,25 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 func (fm *market) attemptFill(fillOrder, bookOrder Order) error {
 	// TODO: keep buy and sell side orders separately so as to avoid this check.
 	if fillOrder.AssetInfo().Name == bookOrder.AssetInfo().Underlying {
-		fillerBalance := fillOrder.Owner().Balance()
 		total := float64(fillOrder.Quantity()) * fillOrder.Price()
 
-		if total > fillerBalance {
-			return fmt.Errorf("insufficient balance, unable to fill")
+		if bookOrder.Quantity() < fillOrder.Quantity() {
+			return fmt.Errorf("partial fills not implemented") // TODO
 		}
 
-		// TODO: orders should have some functionality to mark them as filled
-		// so that we avoid having to hard-cast them.
-		// This hard-cast is an abstraction leakage because it relies on the concrete type.
-		mo, ok := fillOrder.(*MarketOrder)
-		if !ok {
-			return fmt.Errorf("failed to cast as market order: %+v", fillOrder)
-		}
+		bookOrderOpen := bookOrder.Quantity() - fillOrder.Quantity()
+		bookOrderFilled := fillOrder.Quantity() - bookOrder.Quantity()
 
 		// attempt to transfer balances.
-		_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
+		accts, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
 		if err != nil {
 			return fmt.Errorf("transaction failed: %s", err)
 		}
 
-		mo.OpenQuantity = 0
-		mo.FilledQuantity = fillOrder.Quantity()
+		log.Printf("transferred balances: %v", accts)
+
+		_, err = fillOrder.Update(bookOrderFilled, bookOrderOpen)
+		_, err = bookOrder.Update(bookOrderOpen, bookOrderFilled)
 
 		// TODO: remove mo from open orders
 		// err = fm.OrderTrie.Remove(mo.ID())

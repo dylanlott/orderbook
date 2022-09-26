@@ -69,3 +69,64 @@ func TestFilling(t *testing.T) {
 		is.Equal(ord.ID(), "buyer456")
 	})
 }
+
+func TestAttemptFill(t *testing.T) {
+	is := is.New(t)
+
+	t.Run("should fully fill an order", func(t *testing.T) {
+		m := &market{
+			Accounts: &accounts.InMemoryManager{
+				Accounts: map[string]*accounts.UserAccount{
+					"buyer@test.com": &accounts.UserAccount{
+						Email:          "buyer@test.com",
+						CurrentBalance: 2000.0,
+					},
+					"seller@test.com": &accounts.UserAccount{
+						Email:          "seller@test.com",
+						CurrentBalance: 1000.0,
+					},
+				},
+			},
+			OrderTrie: setupTree(t),
+		}
+
+		bookOrder := &MarketOrder{
+			UUID: "seller456",
+			Asset: AssetInfo{
+				Underlying: "ETH",
+				Name:       "USD",
+			},
+			UserAccount: &accounts.UserAccount{
+				Email: "seller@test.com",
+			},
+			OpenQuantity:   1,
+			FilledQuantity: 0,
+			PlacedAt:       time.Now(),
+			MarketPrice:    50.0,
+		}
+
+		_, err := m.Place(bookOrder)
+		is.NoErr(err)
+
+		fillOrder := &MarketOrder{
+			UUID: "buyer456",
+			Asset: AssetInfo{
+				Underlying: "USD",
+				Name:       "ETH",
+			},
+			UserAccount: &accounts.UserAccount{
+				Email: "buyer@test.com",
+			},
+			OpenQuantity:   1,
+			FilledQuantity: 0,
+			PlacedAt:       time.Now(),
+			MarketPrice:    50.0,
+		}
+
+		err = m.attemptFill(fillOrder, bookOrder)
+		is.NoErr(err)
+		buyer, err := m.Accounts.Get("buyer@test.com")
+		is.NoErr(err)
+		is.Equal(buyer.Balance(), float64(1950))
+	})
+}

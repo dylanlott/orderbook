@@ -94,7 +94,7 @@ func setupTree(t *testing.T) *TreeNode {
 	})
 	is.NoErr(err)
 	err = root.Insert(&MarketOrder{
-		UUID:        "0xDEED",
+		UUID:        "0xFEED",
 		MarketPrice: 8.5,
 	})
 	is.NoErr(err)
