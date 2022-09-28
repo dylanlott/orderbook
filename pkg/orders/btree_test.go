@@ -52,7 +52,6 @@ func TestTreeIterate(t *testing.T) {
 	is := is.New(t)
 	root := setupTree(t)
 	root.Match(&MarketOrder{MarketPrice: 15.0}, func(bo Order) {
-		t.Logf("book order found: %v", bo)
 		is.True(bo != nil)
 	})
 }
@@ -70,12 +69,42 @@ func TestTreeOrders(t *testing.T) {
 	})
 }
 
+func TestRemoveOrderFromPriceNode(t *testing.T) {
+	is := is.New(t)
+	root := setupTree(t)
+
+	orders, err := root.Orders(10.0)
+	is.NoErr(err)
+	is.Equal(len(orders), 2)
+
+	order, err := root.Find(10.0)
+	is.NoErr(err)
+	is.Equal(order.Price(), 10.0)
+
+	err = root.RemoveFromPriceList(order)
+	is.NoErr(err)
+
+	got, err := root.Orders(10.0)
+	is.NoErr(err)
+	is.Equal(len(got), 1)
+}
+
 func setupTree(t *testing.T) *TreeNode {
 	is := is.New(t)
-	root := &TreeNode{val: 10.0}
+	root := &TreeNode{val: 0.0}
 	err := root.Insert(&MarketOrder{
 		UUID:        "0xACAB",
 		MarketPrice: 10.0,
+	})
+	is.NoErr(err)
+	err = root.Insert(&MarketOrder{
+		UUID:        "0xBACA",
+		MarketPrice: 10.0,
+	})
+	is.NoErr(err)
+	err = root.Insert(&MarketOrder{
+		UUID:        "0xFEED",
+		MarketPrice: 8.5,
 	})
 	is.NoErr(err)
 	err = root.Insert(&MarketOrder{
@@ -91,11 +120,6 @@ func setupTree(t *testing.T) *TreeNode {
 	err = root.Insert(&MarketOrder{
 		UUID:        "0xDEED",
 		MarketPrice: 13.0,
-	})
-	is.NoErr(err)
-	err = root.Insert(&MarketOrder{
-		UUID:        "0xDEED",
-		MarketPrice: 8.5,
 	})
 	is.NoErr(err)
 	return root

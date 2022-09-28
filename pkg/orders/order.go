@@ -14,6 +14,7 @@ type Order interface {
 	Price() float64  // returns the price of the amount filled.
 	Quantity() int64 // returns the number of units ordered.
 	CreatedAt() time.Time
+	Update(open, filled int64) (Order, error)
 }
 
 // AssetInfo defines the underlying and name for an asset.
@@ -67,4 +68,11 @@ func (mo *MarketOrder) CreatedAt() time.Time {
 // AssetInfo returns the asset information for the market order.
 func (mo *MarketOrder) AssetInfo() AssetInfo {
 	return mo.Asset
+}
+
+// Update updates the open and filled quantities to the given amounts
+func (mo *MarketOrder) Update(open, filled int64) (Order, error) {
+	mo.OpenQuantity = open
+	mo.FilledQuantity = filled
+	return mo, nil
 }

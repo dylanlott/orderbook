@@ -2,7 +2,6 @@ package orders
 
 import (
 	"fmt"
-	"sort"
 )
 
 // TreeNode represents a tree of nodes that maintain lists of Orders at that price.
@@ -140,6 +139,41 @@ func (t *TreeNode) Orders(price float64) ([]Order, error) {
 	panic("should not get here; this smells like a bug")
 }
 
+// RemoveFromPriceList removes an order from the list of orders at a
+// given price in our tree. It does not currently rebalance the tree.
+// TODO: make this rebalance the tree at some threshold.
+func (t *TreeNode) RemoveFromPriceList(order Order) error {
+	if t == nil {
+		return fmt.Errorf("order tree is nil")
+	}
+
+	if order.Price() == t.val {
+		for i, ord := range t.orders {
+			if ord.ID() == order.ID() {
+				t.orders = remove(t.orders, i)
+				return nil
+			}
+		}
+		return fmt.Errorf("ErrNoExist")
+	}
+
+	if order.Price() > t.val {
+		if t.right != nil {
+			return t.right.RemoveFromPriceList(order)
+		}
+		return fmt.Errorf("ErrNoExist")
+	}
+
+	if order.Price() < t.val {
+		if t.left != nil {
+			return t.left.RemoveFromPriceList(order)
+		}
+		return fmt.Errorf("ErrNoExist")
+	}
+
+	panic("should not get here; this smells like a bug")
+}
+
 //PrintInorder prints the elements in left-current-right order.
 func (t *TreeNode) PrintInorder() {
 	if t == nil {
@@ -148,12 +182,4 @@ func (t *TreeNode) PrintInorder() {
 	t.left.PrintInorder()
 	fmt.Printf("%+v\n", t.val)
 	t.right.PrintInorder()
-}
-
-// sortByTimePriority sorts orders by oldest to newest
-func sortByTimePriority(orders []Order) []Order {
-	sort.SliceStable(orders, func(i, j int) bool {
-		return orders[i].CreatedAt().After(orders[j].CreatedAt())
-	})
-	return orders
 }

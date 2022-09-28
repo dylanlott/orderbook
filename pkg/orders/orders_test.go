@@ -5,67 +5,74 @@ import (
 	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
+
 	"github.com/matryer/is"
 )
 
-func TestOrders(t *testing.T) {
-	t.Run("should add an order to the order list", func(t *testing.T) {
-		m := &market{}
-		_, err := m.Place(&MarketOrder{
-			Asset: AssetInfo{
-				Underlying: "USD",
-				Name:       "ETH",
-			},
-			UserAccount: &accounts.UserAccount{
-				Email:          "shakezula@test.com",
-				CurrentBalance: 1200.0,
-			},
-			UUID:           "abc123",
-			OpenQuantity:   10,
-			FilledQuantity: 0,
-			PlacedAt:       time.Now(),
-			MarketPrice:    50.0,
-		})
-		// TODO: make order fulfill interface correctly
-		if err != nil {
-			t.Errorf("failed to place market order: %v", err)
-		}
-	})
-}
+func TestAttemptFill(t *testing.T) {
+	is := is.New(t)
 
-func TestFilling(t *testing.T) {
-	t.Run("should go fill when order is placed", func(t *testing.T) {
-		is := is.New(t)
+	t.Run("should fill an order", func(t *testing.T) {
+		tree := setupTree(t)
 		m := &market{
 			Accounts: &accounts.InMemoryManager{
 				Accounts: map[string]*accounts.UserAccount{
-					"buyer@test.com": &accounts.UserAccount{
+					"buyer@test.com": {
 						Email:          "buyer@test.com",
 						CurrentBalance: 2000.0,
 					},
-					"seller@test.com": &accounts.UserAccount{
+					"seller@test.com": {
 						Email:          "seller@test.com",
 						CurrentBalance: 1000.0,
 					},
 				},
 			},
+			OrderTrie: tree,
 		}
-		ord, err := m.Place(&MarketOrder{
+
+		bookOrder := &MarketOrder{
+			UUID: "seller456",
+			Asset: AssetInfo{
+				Underlying: "ETH",
+				Name:       "USD",
+			},
+			UserAccount: &accounts.UserAccount{
+				Email: "seller@test.com",
+			},
+			OpenQuantity:   1,
+			FilledQuantity: 0,
+			PlacedAt:       time.Now(),
+			MarketPrice:    50.0,
+		}
+
+		fillOrder := &MarketOrder{
 			UUID: "buyer456",
 			Asset: AssetInfo{
 				Underlying: "USD",
 				Name:       "ETH",
 			},
 			UserAccount: &accounts.UserAccount{
-				Email:          "buyer@test.com",
-				CurrentBalance: 1200.0,
+				Email: "buyer@test.com",
 			},
 			OpenQuantity:   1,
 			FilledQuantity: 0,
 			PlacedAt:       time.Now(),
 			MarketPrice:    50.0,
-		})
+		}
+
+		err := m.OrderTrie.Insert(bookOrder)
 		is.NoErr(err)
-		is.Equal(ord.ID(), "buyer456")
+
+		err = m.OrderTrie.Insert(fillOrder)
+		is.NoErr(err)
+
+		err = m.attemptFill(fillOrder, bookOrder)
+		is.NoErr(err)
+
+		m.OrderTrie.PrintInorder()
 	})
+}
+
+func TestPlace(t *testing.T) {
+
 }
