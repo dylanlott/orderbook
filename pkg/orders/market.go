@@ -32,20 +32,17 @@ type market struct {
 	OrderTrie *TreeNode
 }
 
-// Fill returns the fill algorithm for this type of order.
 func (fm *market) Fill(ctx context.Context, fillOrder Order) {
-	// this function fulfills a fillOrder in a limit fill fashion
-	log.Printf("attempting to fill order [%+v]", fillOrder)
-
 	for {
 		fm.OrderTrie.Match(fillOrder, func(bookOrder Order) {
 			if err := fm.attemptFill(fillOrder, bookOrder); err != nil {
 				log.Printf("attemptFill failed: %v", err)
 			}
-
 			// TODO: break and return if fill order is filled
 			// TODO: send on channel to alert when filled
-			return
+			if fillOrder.Quantity() == 0 {
+				return
+			}
 		})
 	}
 }
@@ -53,6 +50,9 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 // attemptFill attempts to fill an order as a Limit Fill order.
 // * It removes the market order from the orderbook if it fully fills
 // the order.
+// * TODO: Add rollback functionality. An order could currently transfer a balance and then
+// fail to update the order totals, resulting in mishandled money.
+// * TODO: remove the order from the order trie node once we see it's filled.
 func (fm *market) attemptFill(fillOrder, bookOrder Order) error {
 	// TODO: keep buy and sell side orders separately so as to avoid this check.
 	if fillOrder.AssetInfo().Name == bookOrder.AssetInfo().Underlying {
@@ -62,25 +62,40 @@ func (fm *market) attemptFill(fillOrder, bookOrder Order) error {
 			return fmt.Errorf("partial fills not implemented") // TODO
 		}
 
-		bookOrderOpen := bookOrder.Quantity() - fillOrder.Quantity()
-		bookOrderFilled := fillOrder.Quantity() - bookOrder.Quantity()
-
-		// attempt to transfer balances.
-		accts, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
+		// attempt to transfer balance from buyer to seller.
+		// this can fail, so we want to do this before we update order information.
+		_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
 		if err != nil {
 			return fmt.Errorf("transaction failed: %s", err)
 		}
 
-		log.Printf("transferred balances: %v", accts)
+		// update the order quantities after we've successfully transferred balances.
+		bookOrderOpen := bookOrder.Quantity() - fillOrder.Quantity()
+		bookOrderFilled := fillOrder.Quantity() - bookOrder.Quantity()
 
+		// update order fill quantity in order trie
 		_, err = fillOrder.Update(bookOrderFilled, bookOrderOpen)
+		if err != nil {
+			log.Printf("error updating order %s: %s", fillOrder.ID(), err)
+		}
 		_, err = bookOrder.Update(bookOrderOpen, bookOrderFilled)
+		if err != nil {
+			log.Printf("error updating order %s: %s", fillOrder.ID(), err)
+		}
 
-		// TODO: remove mo from open orders
-		// err = fm.OrderTrie.Remove(mo.ID())
-		// if err != nil {
-		// return fmt.Errorf("failed to remove order from orderbook: %+v", err)
-		// }
+		if fillOrder.Quantity() == 0 {
+			if err := fm.OrderTrie.RemoveFromPriceList(fillOrder); err != nil {
+				log.Printf("failed to remove order %s: %+v", fillOrder.ID(), err)
+			}
+		}
+
+		if bookOrder.Quantity() == 0 {
+			if err := fm.OrderTrie.RemoveFromPriceList(bookOrder); err != nil {
+				log.Printf("failed to remove order %s: %+v", bookOrder.ID(), err)
+			}
+		}
+
+		log.Printf("order filled %+v", fillOrder)
 
 		return nil
 	}

@@ -17,7 +17,6 @@ type AccountManager interface {
 
 	Get(id string) (Account, error)
 	Create(id string, acct Account) (Account, error)
-	Update(id string, acct Account) (Account, error)
 	Delete(id string) error
 }
 
@@ -106,12 +105,8 @@ func (i *InMemoryManager) Tx(from string, to string, amount float64) ([]Account,
 	return []Account{fromAcct, toAcct}, nil
 }
 
-// Update updates the account id with provided Account information.
-func (i *InMemoryManager) Update(id string, account Account) (Account, error) {
-	panic("not implemented") // TODO: Implement
-}
-
 // Delete removes the account at key id in the accounts map.
 func (i *InMemoryManager) Delete(id string) error {
-	panic("not implemented") // TODO: Implement
+	delete(i.Accounts, id)
+	return nil
 }
