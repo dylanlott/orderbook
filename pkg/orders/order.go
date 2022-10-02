@@ -15,6 +15,7 @@ type Order interface {
 	Quantity() int64 // returns the number of units ordered.
 	CreatedAt() time.Time
 	Update(open, filled int64) (Order, error)
+	Done() <-chan Order
 }
 
 // AssetInfo defines the underlying and name for an asset.
@@ -33,6 +34,8 @@ type MarketOrder struct {
 	FilledQuantity int64
 	PlacedAt       time.Time
 	MarketPrice    float64
+
+	done chan Order
 }
 
 // ID returns the MarketOrder's UUID
@@ -74,5 +77,15 @@ func (mo *MarketOrder) AssetInfo() AssetInfo {
 func (mo *MarketOrder) Update(open, filled int64) (Order, error) {
 	mo.OpenQuantity = open
 	mo.FilledQuantity = filled
+
+	// Notify order completed when Open is 0
+	if mo.OpenQuantity == 0 {
+		mo.done <- mo
+	}
+
 	return mo, nil
+}
+
+func (mo *MarketOrder) Done() <-chan Order {
+	return mo.done
 }
