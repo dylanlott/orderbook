@@ -1,6 +1,7 @@
 package orders
 
 import (
+	"log"
 	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
@@ -15,7 +16,7 @@ type Order interface {
 	Quantity() int64 // returns the number of units ordered.
 	CreatedAt() time.Time
 	Update(open, filled int64) (Order, error)
-	Done() <-chan Order
+	Done() chan Order
 }
 
 // AssetInfo defines the underlying and name for an asset.
@@ -81,11 +82,12 @@ func (mo *MarketOrder) Update(open, filled int64) (Order, error) {
 	// Notify order completed when Open is 0
 	if mo.OpenQuantity == 0 {
 		mo.done <- mo
+		log.Printf("order sent %+v", mo)
 	}
 
 	return mo, nil
 }
 
-func (mo *MarketOrder) Done() <-chan Order {
+func (mo *MarketOrder) Done() chan Order {
 	return mo.done
 }

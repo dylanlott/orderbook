@@ -39,13 +39,15 @@ type market struct {
 func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 	stopper := 0
 	for fillOrder.Quantity() != 0 && stopper < 100 {
+		log.Printf("fill attempt # %d", stopper)
 		err := fm.attemptFill(fillOrder)
 		if err != nil {
 			log.Printf("FillErr: failed to fill order: %+v", err)
+			return
 		}
 		stopper++
 	}
-	log.Printf("stopped trying to fill order: %+v", fillOrder)
+	log.Printf("stopgap reached; stopped trying to fill order: %+v", fillOrder)
 }
 
 // attemptFill attempts to fill an order as a Limit Fill order.
@@ -55,69 +57,87 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 // fail to update the order totals, resulting in mishandled money.
 // * TODO: remove the order from the order trie node once we see it's filled.
 func (fm *market) attemptFill(fillOrder Order) error {
-	log.Printf("### attemptFill: %+v", fillOrder)
-	// total := fillOrder.Quantity() * fillOrder.Price()
+	var errorCollector []error
 
 	if fillOrder.AssetInfo().Name == fm.asset.Name {
-		// handle buy side
-		// asset name == ETH and order asset name == ETH for example
-		// means I'm trying to buy ETH at an ETH exchange.
 		log.Printf("detected buy side order: %+v", fillOrder)
-		return fmt.Errorf("buy side")
+
+		fm.SellSide.Match(fillOrder, func(bookOrder Order) {
+			log.Printf("matched buy order to sell order: %+v", bookOrder)
+
+			// should result in fillOrder being completely filled, bookOrder partial fill
+			if fillOrder.Quantity() < bookOrder.Quantity() {
+				wanted := fillOrder.Quantity()
+				available := bookOrder.Quantity()
+				left := available - wanted
+				updatedFill, err := fillOrder.Update(0, wanted)
+				if err != nil {
+					errorCollector = append(errorCollector, fmt.Errorf("failed to update fill order: %+v", err))
+				}
+				// and bookOrder being partially filled.
+				updatedBook, err := bookOrder.Update(left, wanted)
+				if err != nil {
+					errorCollector = append(errorCollector, fmt.Errorf("failed to update book order: %+v", err))
+				}
+				log.Printf("updated orders - fillOrder: %+v - bookOrder: %+v", updatedFill, updatedBook)
+			}
+
+			// should result in total fill for both since we have equal quantities
+			if fillOrder.Quantity() == bookOrder.Quantity() {
+				available := bookOrder.Quantity()
+				updatedFill, err := fillOrder.Update(0, available)
+				if err != nil {
+					errorCollector = append(errorCollector, fmt.Errorf("failed to update fill order: %+v", err))
+				}
+				updatedBook, err := bookOrder.Update(0, available)
+				if err != nil {
+					errorCollector = append(errorCollector, fmt.Errorf("failed to update book order: %+v", err))
+				}
+				log.Printf("updated orders - fillOrder: %+v - bookOrder: %+v", updatedFill, updatedBook)
+			}
+
+			// should result in fillOrder being partially filled and bookOrder being totally filled.
+			if fillOrder.Quantity() > bookOrder.Quantity() {
+				left := fillOrder.Quantity() - bookOrder.Quantity()
+				taken := bookOrder.Quantity()
+				updatedFill, err := fillOrder.Update(left, taken)
+				if err != nil {
+					errorCollector = append(errorCollector, fmt.Errorf("failed to update fill order: %+v", err))
+				}
+				updatedBook, err := bookOrder.Update(0, taken)
+				if err != nil {
+					errorCollector = append(errorCollector, fmt.Errorf("failed to update book order: %+v", err))
+				}
+				log.Printf("updated orders - fillOrder: %+v - bookOrder: %+v", updatedFill, updatedBook)
+			}
+
+		})
 	} else {
 		// handle sell side
 		log.Printf("detected sell side order: %+v", fillOrder)
-		return fmt.Errorf("sell side")
+		fm.BuySide.Match(fillOrder, func(bookOrder Order) {
+			log.Printf("matched sell order to buy order: %+v", bookOrder)
+		})
+		return fmt.Errorf("sell side not impl: %+v", fillOrder)
 	}
 
-	// if bookOrder.Quantity() < fillOrder.Quantity() {
-	// 	return fmt.Errorf("partial fills not implemented") // TODO
-	// }
+	log.Printf("Errors? %+v", errorCollector)
 
-	// // attempt to transfer balance from buyer to seller.
-	// // this can fail, so we want to do this before we update order information.
-	// _, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
-	// if err != nil {
-	// 	return fmt.Errorf("transaction failed: %s", err)
-	// }
-
-	// // update the order quantities after we've successfully transferred balances.
-	// bookOrderOpen := bookOrder.Quantity() - fillOrder.Quantity()
-	// bookOrderFilled := fillOrder.Quantity() - bookOrder.Quantity()
-
-	// // update order fill quantity in order trie
-	// _, err = fillOrder.Update(bookOrderFilled, bookOrderOpen)
-	// if err != nil {
-	// 	log.Printf("error updating order %s: %s", fillOrder.ID(), err)
-	// }
-	// _, err = bookOrder.Update(bookOrderOpen, bookOrderFilled)
-	// if err != nil {
-	// 	log.Printf("error updating order %s: %s", fillOrder.ID(), err)
-	// }
-
-	// if fillOrder.Quantity() == 0 {
-	// 	if err := fm.OrderTrie.RemoveFromPriceList(fillOrder); err != nil {
-	// 		log.Printf("failed to remove order %s: %+v", fillOrder.ID(), err)
-	// 	}
-	// }
-
-	// if bookOrder.Quantity() == 0 {
-	// 	if err := fm.OrderTrie.RemoveFromPriceList(bookOrder); err != nil {
-	// 		log.Printf("failed to remove order %s: %+v", bookOrder.ID(), err)
-	// 	}
-	// }
+	return nil
 }
 
 // Place creates a new Order and adds it into the Order list.
 func (fm *market) Place(order Order) (Order, error) {
 	log.Printf("### Placing order: %+v", order)
-	if order.Owner() == nil {
+	if order.Owner() == nil || order.Owner().UserID() == "" {
 		return nil, fmt.Errorf("each order must have an associated account")
 	}
 
 	fm.Mutex.Lock()
 	defer fm.Mutex.Unlock()
 
+	// TODO: revisit this check; not sure this makes sense in a situation
+	// where we already split the buy and sell orders
 	if order.AssetInfo().Name == fm.asset.Name {
 		// insert order buy side
 		log.Printf("### Placing order BUY side: %+v", order)

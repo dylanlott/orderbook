@@ -13,11 +13,10 @@ import (
 func Test_market_Fill(t *testing.T) {
 	is := is.New(t)
 	type fields struct {
-		asset     *AssetInfo
-		Accounts  accounts.AccountManager
-		BuySide   *TreeNode
-		SellSide  *TreeNode
-		OrderTrie *TreeNode
+		asset    *AssetInfo
+		Accounts accounts.AccountManager
+		BuySide  *TreeNode
+		SellSide *TreeNode
 	}
 	type args struct {
 		ctx       context.Context
@@ -29,7 +28,7 @@ func Test_market_Fill(t *testing.T) {
 		args   args
 	}{
 		{
-			name: "",
+			name: "should fill a simple matching order",
 			fields: fields{
 				Accounts: &accounts.InMemoryManager{
 					Accounts: map[string]*accounts.UserAccount{
@@ -44,16 +43,44 @@ func Test_market_Fill(t *testing.T) {
 					},
 				},
 				BuySide: &TreeNode{
-					val:    0.0,
-					orders: []Order{},
-					right:  &TreeNode{},
-					left:   &TreeNode{},
+					val: 50.0,
+					orders: []Order{
+						&MarketOrder{
+							Asset: AssetInfo{
+								Name:       "ETH",
+								Underlying: "USD",
+							},
+							UserAccount: &accounts.UserAccount{
+								Email: "buyer@test.com",
+							},
+							UUID:           "0xBUY",
+							OpenQuantity:   1,
+							FilledQuantity: 0,
+							PlacedAt:       time.Time{},
+							MarketPrice:    50.0,
+							done:           make(chan Order, 1),
+						},
+					},
 				},
 				SellSide: &TreeNode{
-					val:    0.0,
-					orders: []Order{},
-					right:  &TreeNode{},
-					left:   &TreeNode{},
+					val: 50.0,
+					orders: []Order{
+						&MarketOrder{
+							Asset: AssetInfo{
+								Name:       "ETH",
+								Underlying: "USD",
+							},
+							UserAccount: &accounts.UserAccount{
+								Email: "seller@test.com",
+							},
+							UUID:           "0xSELL",
+							OpenQuantity:   1,
+							FilledQuantity: 0,
+							PlacedAt:       time.Time{},
+							MarketPrice:    50.0,
+							done:           make(chan Order, 1),
+						},
+					},
 				},
 				asset: &AssetInfo{
 					Name:       "ETH",
@@ -85,9 +112,11 @@ func Test_market_Fill(t *testing.T) {
 				BuySide:  tt.fields.BuySide,
 				SellSide: tt.fields.SellSide,
 			}
+			go func() {
+				got := <-tt.args.fillOrder.Done()
+				is.True(got.ID() == tt.args.fillOrder.ID())
+			}()
 			fm.Fill(tt.args.ctx, tt.args.fillOrder)
-			got := <-tt.args.fillOrder.Done()
-			is.True(got.ID() == tt.args.fillOrder.ID())
 		})
 	}
 }
