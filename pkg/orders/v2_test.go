@@ -49,6 +49,12 @@ func TestPoller(t *testing.T) {
 		for _, testOrder := range testOrders {
 			pending <- testOrder
 		}
+
+		// TODO: Assert against received completed orders
+		for c := range complete {
+			log.Printf("order %s completed", c.ID)
+		}
 	}()
+
 	time.Sleep(3 * time.Second)
 }

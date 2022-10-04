@@ -8,7 +8,7 @@ import (
 
 func StateMonitor() chan OrderState {
 	updates := make(chan OrderState)
-	orderStatus := make(map[string]LimitOrder)
+	orderStatus := make(map[string]*LimitOrder)
 	ticker := time.NewTicker(1 * time.Second)
 
 	go func() {
@@ -16,6 +16,7 @@ func StateMonitor() chan OrderState {
 			select {
 			case s := <-updates:
 				log.Printf("received state update: %+v", s)
+				orderStatus[s.Order.ID] = s.Order
 			case <-ticker.C:
 				logState(orderStatus)
 			}
@@ -25,14 +26,19 @@ func StateMonitor() chan OrderState {
 	return updates
 }
 
-func logState(orders map[string]LimitOrder) {
+func logState(orders map[string]*LimitOrder) {
 	log.Printf("%+v\n", orders)
 }
 
 // LimitOrder represents an Order in our orderbook
 type LimitOrder struct {
-	ID       string
+	ID string
+	// Holds a string identifier to the Owner of the Order.
+	Owner string
+	// Strategy is a blocking function that returns when the order is completed.
 	Strategy func(ctx context.Context) error
+	// Holds any errors that occurred during processing
+	Err error
 }
 
 // OrderState holds the current state of the orderbook.
@@ -44,10 +50,14 @@ type OrderState struct {
 func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderState) {
 	for o := range in {
 		log.Printf("received order %+v", o)
-		err := o.Strategy(context.Background())
-		status <- OrderState{
-			Order: o,
-			Err:   err,
-		}
+
+		go func(order *LimitOrder) {
+			err := order.Strategy(context.Background())
+			status <- OrderState{
+				Order: order,
+				Err:   err,
+			}
+			out <- order
+		}(o)
 	}
 }
