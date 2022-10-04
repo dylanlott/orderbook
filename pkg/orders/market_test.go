@@ -122,6 +122,99 @@ func Test_market_Fill(t *testing.T) {
 				is.Equal(len(orders), 0)
 			},
 		},
+		{
+			name: "should partially fill an order",
+			fields: fields{
+				asset: &AssetInfo{
+					Name:       "ETH",
+					Underlying: "USD",
+				},
+				Accounts: &accounts.InMemoryManager{
+					Accounts: map[string]*accounts.UserAccount{
+						"seller@test.com": {
+							Email:          "seller@test.com",
+							CurrentBalance: SELLER_STARTING_BALANCE,
+						},
+						"buyer@test.com": {
+							Email:          "buyer@test.com",
+							CurrentBalance: BUYER_STARTING_BALANCE,
+						},
+					},
+				},
+				SellSide: &TreeNode{
+					val: 50.0,
+					orders: []Order{
+						&MarketOrder{
+							Asset: AssetInfo{
+								Name:       "ETH",
+								Underlying: "USD",
+							},
+							UserAccount: &accounts.UserAccount{
+								Email: "seller@test.com",
+							},
+							UUID:           "0xSELL",
+							OpenQuantity:   5,
+							FilledQuantity: 0,
+							PlacedAt:       time.Time{},
+							MarketPrice:    50.0,
+							done:           make(chan Order, 1),
+						},
+					},
+				},
+				BuySide: &TreeNode{
+					val: 50.0,
+					orders: []Order{
+						&MarketOrder{
+							Asset: AssetInfo{
+								Name:       "ETH",
+								Underlying: "USD",
+							},
+							UserAccount: &accounts.UserAccount{
+								Email: "buyer@test.com",
+							},
+							UUID:           "0xBUY",
+							OpenQuantity:   1,
+							FilledQuantity: 0,
+							PlacedAt:       time.Time{},
+							MarketPrice:    50.0,
+							done:           make(chan Order, 1),
+						},
+					},
+				},
+			},
+			args: args{
+				ctx: context.Background(),
+				fillOrder: &MarketOrder{
+					UserAccount: &accounts.UserAccount{
+						Email: "buyer@test.com",
+					},
+					Asset: AssetInfo{
+						Name:       "ETH",
+						Underlying: "USD",
+					},
+					UUID:           "0xBUY",
+					OpenQuantity:   2,
+					FilledQuantity: 0,
+					PlacedAt:       time.Now(),
+					MarketPrice:    50,
+					done:           make(chan Order),
+				},
+			},
+
+			assertions: func(t *testing.T, fields fields, args args, m *market) {
+				got := <-args.fillOrder.Done()
+				is.Equal(got.ID(), args.fillOrder.ID())
+				is.True(got.CreatedAt().Before(time.Now()))
+				is.Equal(got.Owner().UserID(), args.fillOrder.Owner().UserID())
+				sellerAcct, err := m.Accounts.Get("seller@test.com")
+				is.NoErr(err)
+				is.Equal(sellerAcct.Balance(), SELLER_STARTING_BALANCE+(2*args.fillOrder.Price()))
+				order, err := m.SellSide.Orders(args.fillOrder.Price())
+				is.NoErr(err)
+				is.True(len(order) == 1)
+				is.Equal(order[0].Quantity(), int64(3))
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
