@@ -28,9 +28,10 @@ func Test_market_Fill(t *testing.T) {
 		fillOrder Order
 	}
 	tests := []struct {
-		name   string
-		fields fields
-		args   args
+		name       string
+		fields     fields
+		args       args
+		assertions func(t *testing.T, fields fields, args args, m *market)
 	}{
 		{
 			name: "should fill a simple matching order",
@@ -110,6 +111,16 @@ func Test_market_Fill(t *testing.T) {
 					done:           make(chan Order),
 				},
 			},
+			assertions: func(t *testing.T, fields fields, args args, m *market) {
+				got := <-args.fillOrder.Done()
+				is.True(got.ID() == args.fillOrder.ID())
+				buyerAcct, err := fields.Accounts.Get(got.Owner().UserID())
+				is.NoErr(err)
+				is.True(buyerAcct.Balance() == BUYER_STARTING_BALANCE-args.fillOrder.Price())
+				orders, err := m.BuySide.Orders(args.fillOrder.Price())
+				is.NoErr(err)
+				is.Equal(len(orders), 0)
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -120,18 +131,14 @@ func Test_market_Fill(t *testing.T) {
 				BuySide:  tt.fields.BuySide,
 				SellSide: tt.fields.SellSide,
 			}
-			go func() {
-				got := <-tt.args.fillOrder.Done()
-				is.True(got.ID() == tt.args.fillOrder.ID())
-				buyerAcct, err := tt.fields.Accounts.Get(got.Owner().UserID())
-				is.NoErr(err)
-				is.True(buyerAcct.Balance() == BUYER_STARTING_BALANCE-tt.args.fillOrder.Price())
-				orders, err := fm.BuySide.Orders(tt.args.fillOrder.Price())
-				is.NoErr(err)
-				is.Equal(len(orders), 0)
-			}()
+
+			go tt.assertions(t, tt.fields, tt.args, fm)
+
 			fm.Fill(tt.args.ctx, tt.args.fillOrder)
-			time.Sleep(1 * time.Second) // NB: This could miss failures if they occur after 1 second.
+
+			// NB: This could miss failures if they occur after 1 second,
+			// but is necessary to hold open.
+			time.Sleep(1 * time.Second)
 		})
 	}
 }

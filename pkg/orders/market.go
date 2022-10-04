@@ -55,7 +55,6 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 // the order.
 // * TODO: Add rollback functionality. An order could currently transfer a balance and then
 // fail to update the order totals, resulting in mishandled money.
-// * TODO: remove the order from the order trie node once we see it's filled.
 func (fm *market) attemptFill(fillOrder Order) error {
 	var fillErr error
 
