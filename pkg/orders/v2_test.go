@@ -15,24 +15,27 @@ const (
 
 var testOrders = []*LimitOrder{
 	{
-		ID:   "foo",
-		Side: BUY,
+		id:    "foo",
+		Side:  BUY,
+		price: 100,
 		Strategy: func(ctx context.Context) error {
 			log.Printf("hit strategy")
 			return fmt.Errorf("not impl")
 		},
 	},
 	{
-		ID:   "buzz",
-		Side: SELL,
+		id:    "buzz",
+		Side:  SELL,
+		price: 100,
 		Strategy: func(ctx context.Context) error {
 			log.Printf("hit strategy")
 			return fmt.Errorf("not impl")
 		},
 	},
 	{
-		ID:   "bar",
-		Side: BUY,
+		id:    "bar",
+		Side:  BUY,
+		price: 100,
 		Strategy: func(ctx context.Context) error {
 			log.Printf("hit strategy")
 			return fmt.Errorf("not impl")
@@ -41,6 +44,7 @@ var testOrders = []*LimitOrder{
 }
 
 func TestPoller(t *testing.T) {
+
 	// Create our input and output channels.
 	pending, complete := make(chan *LimitOrder), make(chan *LimitOrder)
 
@@ -66,9 +70,11 @@ func TestPoller(t *testing.T) {
 
 		// TODO: Assert against received completed orders
 		for c := range complete {
-			log.Printf("order %s completed", c.ID)
+			log.Printf("order %s completed", c.ID())
 		}
 	}()
 
 	time.Sleep(3 * time.Second)
+
+	orderbook.Buy.PrintInorder()
 }

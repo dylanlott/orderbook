@@ -17,7 +17,7 @@ func StateMonitor() chan OrderState {
 			select {
 			case s := <-updates:
 				log.Printf("received state update: %+v", s)
-				orderStatus[s.Order.ID] = s.Order
+				orderStatus[s.Order.ID()] = s.Order
 			case <-ticker.C:
 				logState(orderStatus)
 			}
@@ -31,9 +31,18 @@ func logState(orders map[string]*LimitOrder) {
 	log.Printf("%+v\n", orders)
 }
 
+// OrderV2 holds a second approach at the Order interface
+// that incorporates lessons learned from the first time around.
+type OrderV2 interface {
+	ID() string
+	Price() int64
+}
+
 // LimitOrder represents an Order in our orderbook
 type LimitOrder struct {
-	ID string
+	id    string
+	price int64
+
 	// Holds a string identifier to the Owner of the Order.
 	Owner string
 	Side  string
@@ -45,8 +54,9 @@ type LimitOrder struct {
 
 // OrderState holds the current state of the orderbook.
 type OrderState struct {
-	Order *LimitOrder
-	Err   error
+	Order  *LimitOrder
+	Status string
+	Err    error
 }
 
 // Orderbook is worked on by Workers.
@@ -54,6 +64,14 @@ type OrderState struct {
 type Orderbook struct {
 	Buy  *TreeNodeV2
 	Sell *TreeNodeV2
+}
+
+func (l *LimitOrder) ID() string {
+	return l.id
+}
+
+func (l *LimitOrder) Price() int64 {
+	return l.price
 }
 
 func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderState, orderbook *Orderbook) {
@@ -67,8 +85,22 @@ func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderSt
 			switch order.Side {
 			case "BUY":
 				log.Printf("Buy order: %+v", order)
+				if err := orderbook.Buy.Insert(order); err != nil {
+					status <- OrderState{
+						Order: order,
+						Err:   fmt.Errorf("failed to insert into buy tree: %w", err),
+					}
+					return
+				}
 			case "SELL":
 				log.Printf("Sell order: %+v", order)
+				if err := orderbook.Sell.Insert(order); err != nil {
+					status <- OrderState{
+						Order: order,
+						Err:   fmt.Errorf("failed to insert into sell tree: %w", err),
+					}
+					return
+				}
 			default:
 				panic("must specify an order side")
 			}
@@ -83,6 +115,10 @@ func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderSt
 		}(o)
 	}
 }
+
+////////////////////////
+// B-TREE IMPLEMENTATION
+////////////////////////
 
 // TreeNodeV2 represents a tree of nodes that maintain lists of Orders at that price.
 // * Each TreeNodeV2 maintains an ordered list of Orders that share the same price.
@@ -130,11 +166,6 @@ func (t *TreeNodeV2) Insert(o OrderV2) error {
 	}
 
 	panic("should not get here; this smells like a bug")
-}
-
-type OrderV2 interface {
-	ID() string
-	Price() int64
 }
 
 // Find returns the highest priority Order for a given price point.
