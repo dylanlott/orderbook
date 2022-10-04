@@ -8,23 +8,31 @@ import (
 	"time"
 )
 
+const (
+	BUY  string = "BUY"
+	SELL string = "SELL"
+)
+
 var testOrders = []*LimitOrder{
 	{
-		ID: "foo",
+		ID:   "foo",
+		Side: BUY,
 		Strategy: func(ctx context.Context) error {
 			log.Printf("hit strategy")
 			return fmt.Errorf("not impl")
 		},
 	},
 	{
-		ID: "buzz",
+		ID:   "buzz",
+		Side: SELL,
 		Strategy: func(ctx context.Context) error {
 			log.Printf("hit strategy")
 			return fmt.Errorf("not impl")
 		},
 	},
 	{
-		ID: "bar",
+		ID:   "bar",
+		Side: BUY,
 		Strategy: func(ctx context.Context) error {
 			log.Printf("hit strategy")
 			return fmt.Errorf("not impl")
@@ -39,9 +47,15 @@ func TestPoller(t *testing.T) {
 	// Launch the StateMonitor.
 	status := StateMonitor()
 
+	// Create a fresh orderbook and pass it to Worker
+	orderbook := &Orderbook{
+		Buy:  &TreeNodeV2{},
+		Sell: &TreeNodeV2{},
+	}
+
 	// Launch some Poller goroutines.
 	for i := 0; i < 2; i++ {
-		go Worker(pending, complete, status)
+		go Worker(pending, complete, status, orderbook)
 	}
 
 	// Send some Resources to the pending queue.
