@@ -57,7 +57,7 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 // fail to update the order totals, resulting in mishandled money.
 // * TODO: remove the order from the order trie node once we see it's filled.
 func (fm *market) attemptFill(fillOrder Order) error {
-	var errorCollector []error
+	var fillErr error
 
 	if fillOrder.AssetInfo().Name == fm.asset.Name {
 		log.Printf("detected buy side order: %+v", fillOrder)
@@ -70,45 +70,103 @@ func (fm *market) attemptFill(fillOrder Order) error {
 				wanted := fillOrder.Quantity()
 				available := bookOrder.Quantity()
 				left := available - wanted
+
+				// TODO: upgrade from float64 to integer-only handling
+				total := float64(wanted) * bookOrder.Price()
+				_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
+				if err != nil {
+					fillErr = fmt.Errorf("failed to transfer balances: %+v", err)
+					return
+				}
+
+				// complete fill of fillOrder
 				updatedFill, err := fillOrder.Update(0, wanted)
 				if err != nil {
-					errorCollector = append(errorCollector, fmt.Errorf("failed to update fill order: %+v", err))
+					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
+					return
 				}
+
+				// remove the fillOrder since it is now considered filled
+				// NB: Hmmm, this seems to clash with how our Orders like to handle completion themselves.
+				// Should we consider moving this elsewhere?
+				if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
+					fillErr = fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
+					return
+				}
+
 				// and bookOrder being partially filled.
 				updatedBook, err := bookOrder.Update(left, wanted)
 				if err != nil {
-					errorCollector = append(errorCollector, fmt.Errorf("failed to update book order: %+v", err))
+					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
+					return
 				}
-				log.Printf("updated orders - fillOrder: %+v - bookOrder: %+v", updatedFill, updatedBook)
+
+				log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
 			}
 
 			// should result in total fill for both since we have equal quantities
 			if fillOrder.Quantity() == bookOrder.Quantity() {
+				wanted := fillOrder.Quantity()
 				available := bookOrder.Quantity()
+
+				// TODO: upgrade form float64 to integer-only handling
+				total := float64(wanted) * bookOrder.Price()
+				_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
+				if err != nil {
+					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
+					return
+				}
+
 				updatedFill, err := fillOrder.Update(0, available)
 				if err != nil {
-					errorCollector = append(errorCollector, fmt.Errorf("failed to update fill order: %+v", err))
+					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
+					return
 				}
+				if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
+					fillErr = fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
+					return
+				}
+
 				updatedBook, err := bookOrder.Update(0, available)
 				if err != nil {
-					errorCollector = append(errorCollector, fmt.Errorf("failed to update book order: %+v", err))
+					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
+					return
 				}
-				log.Printf("updated orders - fillOrder: %+v - bookOrder: %+v", updatedFill, updatedBook)
+				if err := fm.SellSide.RemoveFromPriceList(updatedBook); err != nil {
+					fillErr = fmt.Errorf("failed to remove book order %s form sell side: %+v", bookOrder.ID(), err)
+				}
+				log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
 			}
 
 			// should result in fillOrder being partially filled and bookOrder being totally filled.
 			if fillOrder.Quantity() > bookOrder.Quantity() {
 				left := fillOrder.Quantity() - bookOrder.Quantity()
 				taken := bookOrder.Quantity()
+				wanted := float64(bookOrder.Quantity()) * bookOrder.Price()
+
+				total := float64(wanted) * bookOrder.Price()
+				_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
+				if err != nil {
+					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
+					return
+				}
+
 				updatedFill, err := fillOrder.Update(left, taken)
 				if err != nil {
-					errorCollector = append(errorCollector, fmt.Errorf("failed to update fill order: %+v", err))
+					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
+					return
 				}
+
 				updatedBook, err := bookOrder.Update(0, taken)
 				if err != nil {
-					errorCollector = append(errorCollector, fmt.Errorf("failed to update book order: %+v", err))
+					fillErr = fmt.Errorf("failed to update book order: %+v", err)
+					return
 				}
-				log.Printf("updated orders - fillOrder: %+v - bookOrder: %+v", updatedFill, updatedBook)
+				if err := fm.SellSide.RemoveFromPriceList(updatedBook); err != nil {
+					fillErr = fmt.Errorf("failed to remove book order %s form sell side: %+v", bookOrder.ID(), err)
+				}
+
+				log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
 			}
 
 		})
@@ -121,9 +179,7 @@ func (fm *market) attemptFill(fillOrder Order) error {
 		return fmt.Errorf("sell side not impl: %+v", fillOrder)
 	}
 
-	log.Printf("Errors? %+v", errorCollector)
-
-	return nil
+	return fillErr
 }
 
 // Place creates a new Order and adds it into the Order list.

@@ -10,7 +10,12 @@ import (
 	"github.com/dylanlott/orderbook/pkg/accounts"
 )
 
+// Starting balances
+const BUYER_STARTING_BALANCE = 500.00
+const SELLER_STARTING_BALANCE = 1000.00
+
 func Test_market_Fill(t *testing.T) {
+
 	is := is.New(t)
 	type fields struct {
 		asset    *AssetInfo
@@ -34,11 +39,11 @@ func Test_market_Fill(t *testing.T) {
 					Accounts: map[string]*accounts.UserAccount{
 						"seller@test.com": {
 							Email:          "seller@test.com",
-							CurrentBalance: 1000.00,
+							CurrentBalance: SELLER_STARTING_BALANCE,
 						},
 						"buyer@test.com": {
 							Email:          "buyer@test.com",
-							CurrentBalance: 500.00,
+							CurrentBalance: BUYER_STARTING_BALANCE,
 						},
 					},
 				},
@@ -90,11 +95,14 @@ func Test_market_Fill(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				fillOrder: &MarketOrder{
+					UserAccount: &accounts.UserAccount{
+						Email: "buyer@test.com",
+					},
 					Asset: AssetInfo{
 						Name:       "ETH",
 						Underlying: "USD",
 					},
-					UUID:           "foo",
+					UUID:           "0xBUY",
 					OpenQuantity:   1,
 					FilledQuantity: 0,
 					PlacedAt:       time.Now(),
@@ -115,8 +123,15 @@ func Test_market_Fill(t *testing.T) {
 			go func() {
 				got := <-tt.args.fillOrder.Done()
 				is.True(got.ID() == tt.args.fillOrder.ID())
+				buyerAcct, err := tt.fields.Accounts.Get(got.Owner().UserID())
+				is.NoErr(err)
+				is.True(buyerAcct.Balance() == BUYER_STARTING_BALANCE-tt.args.fillOrder.Price())
+				orders, err := fm.BuySide.Orders(tt.args.fillOrder.Price())
+				is.NoErr(err)
+				is.Equal(len(orders), 0)
 			}()
 			fm.Fill(tt.args.ctx, tt.args.fillOrder)
+			time.Sleep(1 * time.Second) // NB: This could miss failures if they occur after 1 second.
 		})
 	}
 }
