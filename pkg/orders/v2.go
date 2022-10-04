@@ -9,7 +9,7 @@ import (
 
 func StateMonitor() chan OrderState {
 	updates := make(chan OrderState)
-	orderStatus := make(map[string]*LimitOrder)
+	orderStatus := make(map[string]OrderV2)
 	ticker := time.NewTicker(1 * time.Second)
 
 	go func() {
@@ -27,7 +27,8 @@ func StateMonitor() chan OrderState {
 	return updates
 }
 
-func logState(orders map[string]*LimitOrder) {
+// a simple convenience function to display the current state of the engine.
+func logState(orders map[string]OrderV2) {
 	log.Printf("%+v\n", orders)
 }
 
@@ -52,9 +53,10 @@ type LimitOrder struct {
 	Err error
 }
 
-// OrderState holds the current state of the orderbook.
+// OrderState holds the current state of an OrderV2 and
+// binds it to a simple state object.
 type OrderState struct {
-	Order  *LimitOrder
+	Order  OrderV2
 	Status string
 	Err    error
 }
