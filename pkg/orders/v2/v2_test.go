@@ -13,30 +13,35 @@ const (
 	SELL string = "SELL"
 )
 
+// LimitFill fills the given order with a limit strategy. A limit strategy fills orders
+// at a hard max for buys and a hard minimum for sells with no time limit.
+var LimitFill FillStrategy = func(ctx context.Context, self Order, b *Orderbook) error {
+	return fmt.Errorf("not impl")
+}
+
+// MarketFill fills orders at the current market price until they're filled.
+var MarketFill FillStrategy = func(ctx context.Context, self Order, books *Orderbook) error {
+	return fmt.Errorf("not impl")
+}
+
 var testOrders = []*LimitOrder{
 	{
-		id:    "foo",
-		side:  BUY,
-		price: 100,
-		Strategy: func(ctx context.Context, self Order, b *Orderbook) error {
-			return fmt.Errorf("not impl")
-		},
+		id:       "foo",
+		side:     BUY,
+		price:    100,
+		Strategy: LimitFill,
 	},
 	{
-		id:    "buzz",
-		side:  SELL,
-		price: 100,
-		Strategy: func(ctx context.Context, self Order, b *Orderbook) error {
-			return fmt.Errorf("not impl")
-		},
+		id:       "buzz",
+		side:     SELL,
+		price:    100,
+		Strategy: LimitFill,
 	},
 	{
-		id:    "bar",
-		side:  BUY,
-		price: 100,
-		Strategy: func(ctx context.Context, self Order, b *Orderbook) error {
-			return fmt.Errorf("not impl")
-		},
+		id:       "bar",
+		side:     BUY,
+		price:    100,
+		Strategy: LimitFill,
 	},
 }
 
