@@ -16,28 +16,25 @@ const (
 var testOrders = []*LimitOrder{
 	{
 		id:    "foo",
-		Side:  BUY,
+		side:  BUY,
 		price: 100,
-		Strategy: func(ctx context.Context) error {
-			log.Printf("hit strategy")
+		Strategy: func(ctx context.Context, self Order, b *Orderbook) error {
 			return fmt.Errorf("not impl")
 		},
 	},
 	{
 		id:    "buzz",
-		Side:  SELL,
+		side:  SELL,
 		price: 100,
-		Strategy: func(ctx context.Context) error {
-			log.Printf("hit strategy")
+		Strategy: func(ctx context.Context, self Order, b *Orderbook) error {
 			return fmt.Errorf("not impl")
 		},
 	},
 	{
 		id:    "bar",
-		Side:  BUY,
+		side:  BUY,
 		price: 100,
-		Strategy: func(ctx context.Context) error {
-			log.Printf("hit strategy")
+		Strategy: func(ctx context.Context, self Order, b *Orderbook) error {
 			return fmt.Errorf("not impl")
 		},
 	},
@@ -53,16 +50,14 @@ func TestPoller(t *testing.T) {
 
 	// Create a fresh orderbook and pass it to Worker
 	orderbook := &Orderbook{
-		Buy:  &TreeNodeV2{},
-		Sell: &TreeNodeV2{},
+		Buy:  &PriceNode{val: 0.0},
+		Sell: &PriceNode{val: 0.0},
 	}
 
-	// Launch some Poller goroutines.
 	for i := 0; i < 2; i++ {
 		go Worker(pending, complete, status, orderbook)
 	}
 
-	// Send some Resources to the pending queue.
 	go func() {
 		for _, testOrder := range testOrders {
 			pending <- testOrder
@@ -76,5 +71,5 @@ func TestPoller(t *testing.T) {
 
 	time.Sleep(3 * time.Second)
 
-	orderbook.Buy.PrintInorder()
+	orderbook.Buy.Print()
 }

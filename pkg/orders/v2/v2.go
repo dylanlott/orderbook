@@ -7,9 +7,10 @@ import (
 	"time"
 )
 
+// StateMonitor returns a channel that outputts OrderStates as its receives them.
 func StateMonitor() chan OrderState {
 	updates := make(chan OrderState)
-	orderStatus := make(map[string]OrderV2)
+	orderStatus := make(map[string]Order)
 	ticker := time.NewTicker(1 * time.Second)
 
 	go func() {
@@ -28,35 +29,47 @@ func StateMonitor() chan OrderState {
 }
 
 // a simple convenience function to display the current state of the engine.
-func logState(orders map[string]OrderV2) {
+func logState(orders map[string]Order) {
 	log.Printf("%+v\n", orders)
 }
 
-// OrderV2 holds a second approach at the Order interface
+// Order holds a second approach at the Order interface
 // that incorporates lessons learned from the first time around.
-type OrderV2 interface {
+type Order interface {
 	ID() string
 	Price() int64
+	Side() string
 }
 
-// LimitOrder represents an Order in our orderbook
-type LimitOrder struct {
-	id    string
-	price int64
+// FillStrategy is a synchronous function that is meant to be called in a
+// goroutine that handles different fill strategies e.g. Limit Order,
+// Market Order, etc... for the order's self.
+type FillStrategy func(ctx context.Context, self Order, books *Orderbook) error
 
+// LimitOrder fulfills the Order interface. FillStrategy implements a limit order
+// fill algorithm.
+type LimitOrder struct {
 	// Holds a string identifier to the Owner of the Order.
 	Owner string
-	Side  string
-	// Strategy is a blocking function that returns when the order is completed.
-	Strategy func(ctx context.Context) error
+	// Strategy is a blocking function that returns when the order is filled.
+	Strategy FillStrategy
 	// Holds any errors that occurred during processing
 	Err error
+
+	//// Private fields
+	// id is a unique identifier
+	id string
+	// price of the order in the asset's smallest atomic unit.
+	// E.G. cents for USD, gwei for ETH, etc...
+	price int64
+	// Returns BUY if its a buy order, SELL if its a sell order.
+	side string
 }
 
 // OrderState holds the current state of an OrderV2 and
 // binds it to a simple state object.
 type OrderState struct {
-	Order  OrderV2
+	Order  Order
 	Status string
 	Err    error
 }
@@ -64,18 +77,26 @@ type OrderState struct {
 // Orderbook is worked on by Workers.
 // TODO: Turn this into an interface to abstract away the underlying data structure
 type Orderbook struct {
-	Buy  *TreeNodeV2
-	Sell *TreeNodeV2
+	Buy  *PriceNode
+	Sell *PriceNode
 }
 
+// ID returns the private id of the LimitOrder
 func (l *LimitOrder) ID() string {
 	return l.id
 }
 
+// Price returns the private price of the LimitOrder as int64
 func (l *LimitOrder) Price() int64 {
 	return l.price
 }
+func (l *LimitOrder) Side() string {
+	return l.side
+}
 
+// Worker defines a function meant to be spawned concurrently that listens to the in
+// channel and fills orders as they are received and processes them in their own
+// gouroutine.
 func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderState, orderbook *Orderbook) {
 	for o := range in {
 
@@ -84,7 +105,7 @@ func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderSt
 			log.Printf("received order %+v", order)
 
 			// insert the order into the correct side of our books
-			switch order.Side {
+			switch order.Side() {
 			case "BUY":
 				log.Printf("Buy order: %+v", order)
 				if err := orderbook.Buy.Insert(order); err != nil {
@@ -107,8 +128,18 @@ func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderSt
 				panic("must specify an order side")
 			}
 
+			// TODO: we need to figure out if we want to couple Workers to Orders for filling
+			// or if workers should be separate and just crawl the tree constantly.
+
+			// Approach 1: We could pass the out channel reference to the Strategy and
+			// with the trees and let the worker just fill orders as fast as it can.
+
+			// Approach 2: We pass the out channel and trees ref to the Worker and let it
+			// fill one order at a time. One worker per Order, until an order gets paused.
+			// That has a more complicated lifecycle, though.
+
 			// start attempting to fill the order
-			err := order.Strategy(context.Background())
+			err := order.Strategy(context.Background(), order, orderbook)
 			status <- OrderState{
 				Order: order,
 				Err:   err,
@@ -122,30 +153,30 @@ func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderSt
 // B-TREE IMPLEMENTATION
 ////////////////////////
 
-// TreeNodeV2 represents a tree of nodes that maintain lists of Orders at that price.
-// * Each TreeNodeV2 maintains an ordered list of Orders that share the same price.
+// PriceNode represents a tree of nodes that maintain lists of Orders at that price.
+// * Each PriceNode maintains an ordered list of Orders that share the same price.
 // * This tree is a simple binary tree, where left nodes are lesser prices and right
 // nodes are greater in price than the current node.
-type TreeNodeV2 struct {
+type PriceNode struct {
 	val    int64 // to represent price
-	orders []OrderV2
-	right  *TreeNodeV2
-	left   *TreeNodeV2
+	orders []Order
+	right  *PriceNode
+	left   *PriceNode
 }
 
 // Insert will add an Order to the Tree. It traverses until it finds the right price
 // or where the price should exist and creates a price node if it doesn't exist, then
 // adds the Order to that price node.
-func (t *TreeNodeV2) Insert(o OrderV2) error {
+func (t *PriceNode) Insert(o Order) error {
 	if t == nil {
-		t = &TreeNodeV2{val: o.Price()}
+		t = &PriceNode{val: o.Price()}
 	}
 
 	if t.val == o.Price() {
 		// when we find a price match for the Order's price,
 		// insert the Order into this node's Order list.
 		if t.orders == nil {
-			t.orders = make([]OrderV2, 0)
+			t.orders = make([]Order, 0)
 		}
 		t.orders = append(t.orders, o)
 		return nil
@@ -153,7 +184,7 @@ func (t *TreeNodeV2) Insert(o OrderV2) error {
 
 	if o.Price() < t.val {
 		if t.left == nil {
-			t.left = &TreeNodeV2{val: o.Price()}
+			t.left = &PriceNode{val: o.Price()}
 			return t.left.Insert(o)
 		}
 		return t.left.Insert(o)
@@ -161,7 +192,7 @@ func (t *TreeNodeV2) Insert(o OrderV2) error {
 
 	if o.Price() > t.val {
 		if t.right == nil {
-			t.right = &TreeNodeV2{val: o.Price()}
+			t.right = &PriceNode{val: o.Price()}
 			return t.right.Insert(o)
 		}
 		return t.right.Insert(o)
@@ -173,7 +204,7 @@ func (t *TreeNodeV2) Insert(o OrderV2) error {
 // Find returns the highest priority Order for a given price point.
 // * If it can't find an order at that exact price, it will search for
 // a cheaper order if one exists.
-func (t *TreeNodeV2) Find(price int64) (OrderV2, error) {
+func (t *PriceNode) Find(price int64) (Order, error) {
 	if t == nil {
 		return nil, fmt.Errorf("err no exist")
 	}
@@ -202,7 +233,7 @@ func (t *TreeNodeV2) Find(price int64) (OrderV2, error) {
 
 // Match will iterate through the tree based on the price of the
 // fillOrder and finds a bookOrder that matches its price.
-func (t *TreeNodeV2) Match(fillOrder OrderV2, cb func(bookOrder OrderV2)) {
+func (t *PriceNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 	if t == nil {
 		cb(nil)
 		return
@@ -233,7 +264,7 @@ func (t *TreeNodeV2) Match(fillOrder OrderV2, cb func(bookOrder OrderV2)) {
 }
 
 // Orders returns the list of Orders for a given price.
-func (t *TreeNodeV2) Orders(price int64) ([]OrderV2, error) {
+func (t *PriceNode) Orders(price int64) ([]Order, error) {
 	if t == nil {
 		return nil, fmt.Errorf("order tree is nil")
 	}
@@ -260,7 +291,7 @@ func (t *TreeNodeV2) Orders(price int64) ([]OrderV2, error) {
 // RemoveFromPriceList removes an order from the list of orders at a
 // given price in our tree. It does not currently rebalance the tree.
 // TODO: make this rebalance the tree at some threshold.
-func (t *TreeNodeV2) RemoveFromPriceList(order OrderV2) error {
+func (t *PriceNode) RemoveFromPriceList(order Order) error {
 	if t == nil {
 		return fmt.Errorf("order tree is nil")
 	}
@@ -292,18 +323,18 @@ func (t *TreeNodeV2) RemoveFromPriceList(order OrderV2) error {
 	panic("should not get here; this smells like a bug")
 }
 
-//PrintInorder prints the elements in left-current-right order.
-func (t *TreeNodeV2) PrintInorder() {
+//Print prints the elements in left-current-right order.
+func (t *PriceNode) Print() {
 	if t == nil {
 		return
 	}
-	t.left.PrintInorder()
+	t.left.Print()
 	fmt.Printf("%+v\n", t.val)
-	t.right.PrintInorder()
+	t.right.Print()
 }
 
 // remove removes the element in s at index i
-func removeV2(s []OrderV2, i int) []OrderV2 {
+func removeV2(s []Order, i int) []Order {
 	s[i] = s[len(s)-1]
 	return s[:len(s)-1]
 }
