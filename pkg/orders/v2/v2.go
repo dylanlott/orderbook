@@ -1,3 +1,6 @@
+// Package v2 uses a channel-based approach to order fulfillment to explore
+// a concurrency-first design. It also defines a simpler Order interface
+// to see how we can slim down that design from our previous approach.
 package v2
 
 import (
@@ -6,6 +9,25 @@ import (
 	"log"
 	"time"
 )
+
+// BUY or SELL side string constant definitions
+const (
+	// BUY marks an order as a buy side order
+	BUY string = "BUY"
+	// SELL marks an order as a sell side order
+	SELL string = "SELL"
+)
+
+// LimitFill fills the given order with a limit strategy. A limit strategy fills orders
+// at a hard max for buys and a hard minimum for sells with no time limit.
+var LimitFill FillStrategy = func(ctx context.Context, self Order, b *Orderbook) error {
+	return fmt.Errorf("not impl")
+}
+
+// MarketFill fills orders at the current market price until they're filled.
+var MarketFill FillStrategy = func(ctx context.Context, self Order, books *Orderbook) error {
+	return fmt.Errorf("not impl")
+}
 
 // StateMonitor returns a channel that outputts OrderStates as its receives them.
 func StateMonitor() chan OrderState {
@@ -39,6 +61,7 @@ type Order interface {
 	ID() string
 	Price() int64
 	Side() string
+	Fill(ctx context.Context, o *Orderbook) (Order, error)
 }
 
 // FillStrategy is a synchronous function that is meant to be called in a
@@ -81,6 +104,10 @@ type Orderbook struct {
 	Sell *PriceNode
 }
 
+////////////////
+// LimitOrder //
+////////////////
+
 // ID returns the private id of the LimitOrder
 func (l *LimitOrder) ID() string {
 	return l.id
@@ -90,18 +117,26 @@ func (l *LimitOrder) ID() string {
 func (l *LimitOrder) Price() int64 {
 	return l.price
 }
+
+// Side returns the type of order, either BUY or SELL.
 func (l *LimitOrder) Side() string {
 	return l.side
+}
+
+// Fill is a synchronous function that implements a LimitOrder fill and returns
+// an error if there were any issues.
+func (l *LimitOrder) Fill(ctx context.Context, o *Orderbook) (Order, error) {
+	return l, fmt.Errorf("Fill not impl")
 }
 
 // Worker defines a function meant to be spawned concurrently that listens to the in
 // channel and fills orders as they are received and processes them in their own
 // gouroutine.
-func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderState, orderbook *Orderbook) {
+func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbook *Orderbook) {
 	for o := range in {
 
 		// attempt to fill the order
-		go func(order *LimitOrder) {
+		go func(order Order) {
 			log.Printf("received order %+v", order)
 
 			// insert the order into the correct side of our books
@@ -128,20 +163,10 @@ func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderSt
 				panic("must specify an order side")
 			}
 
-			// TODO: we need to figure out if we want to couple Workers to Orders for filling
-			// or if workers should be separate and just crawl the tree constantly.
-
-			// Approach 1: We could pass the out channel reference to the Strategy and
-			// with the trees and let the worker just fill orders as fast as it can.
-
-			// Approach 2: We pass the out channel and trees ref to the Worker and let it
-			// fill one order at a time. One worker per Order, until an order gets paused.
-			// That has a more complicated lifecycle, though.
-
 			// start attempting to fill the order
-			err := order.Strategy(context.Background(), order, orderbook)
+			filled, err := order.Fill(context.Background(), orderbook)
 			status <- OrderState{
-				Order: order,
+				Order: filled,
 				Err:   err,
 			}
 			out <- order
@@ -149,9 +174,9 @@ func Worker(in <-chan *LimitOrder, out chan<- *LimitOrder, status chan<- OrderSt
 	}
 }
 
-////////////////////////
-// B-TREE IMPLEMENTATION
-////////////////////////
+///////////////////////////
+// B-TREE IMPLEMENTATION //
+///////////////////////////
 
 // PriceNode represents a tree of nodes that maintain lists of Orders at that price.
 // * Each PriceNode maintains an ordered list of Orders that share the same price.
