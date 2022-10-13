@@ -2,9 +2,12 @@ package v2
 
 import (
 	"log"
+	"sync"
 	"testing"
-	"time"
 )
+
+// number of workers that will process orders
+var numWorkers = 2
 
 var testOrders = []Order{
 	&LimitOrder{
@@ -27,8 +30,7 @@ var testOrders = []Order{
 	},
 }
 
-func TestPoller(t *testing.T) {
-
+func TestWorker(t *testing.T) {
 	// Create our input and output channels.
 	pending, complete := make(chan Order), make(chan Order)
 
@@ -41,22 +43,22 @@ func TestPoller(t *testing.T) {
 		Sell: &PriceNode{val: 0.0},
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < numWorkers; i++ {
 		go Worker(pending, complete, status, orderbook)
 	}
 
+	var wg = &sync.WaitGroup{}
 	go func() {
 		for _, testOrder := range testOrders {
+			wg.Add(1)
 			pending <- testOrder
 		}
 
-		// TODO: Assert against received completed orders
 		for c := range complete {
+			wg.Done()
 			log.Printf("order %s completed", c.ID())
 		}
 	}()
 
-	time.Sleep(1 * time.Second)
-
-	orderbook.Buy.Print()
+	wg.Wait()
 }
