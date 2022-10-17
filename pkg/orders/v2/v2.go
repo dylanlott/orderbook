@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -17,17 +18,6 @@ const (
 	// SELL marks an order as a sell side order
 	SELL string = "SELL"
 )
-
-// LimitFill fills the given order with a limit strategy. A limit strategy fills orders
-// at a hard max for buys and a hard minimum for sells with no time limit.
-var LimitFill FillStrategy = func(ctx context.Context, self Order, b *Orderbook) error {
-	return fmt.Errorf("not impl")
-}
-
-// MarketFill fills orders at the current market price until they're filled.
-var MarketFill FillStrategy = func(ctx context.Context, self Order, books *Orderbook) error {
-	return fmt.Errorf("not impl")
-}
 
 // StateMonitor returns a channel that outputts OrderStates as its receives them.
 func StateMonitor() chan OrderState {
@@ -64,18 +54,11 @@ type Order interface {
 	Fill(ctx context.Context, o *Orderbook) (Order, error)
 }
 
-// FillStrategy is a synchronous function that is meant to be called in a
-// goroutine that handles different fill strategies e.g. Limit Order,
-// Market Order, etc... for the order's self.
-type FillStrategy func(ctx context.Context, self Order, books *Orderbook) error
-
 // LimitOrder fulfills the Order interface. FillStrategy implements a limit order
 // fill algorithm.
 type LimitOrder struct {
 	// Holds a string identifier to the Owner of the Order.
 	Owner string
-	// Strategy is a blocking function that returns when the order is filled.
-	Strategy FillStrategy
 	// Holds any errors that occurred during processing
 	Err error
 
@@ -102,6 +85,36 @@ type OrderState struct {
 type Orderbook struct {
 	Buy  *PriceNode
 	Sell *PriceNode
+}
+
+//  Pull is an atomic operation on the Orderbook that removes an
+// order from the tree at the given price or returns an error.
+func (o *Orderbook) Pull(price int64, side string) (Order, error) {
+	if side == BUY {
+		return o.Buy.Pull(price)
+	} else {
+		return o.Sell.Pull(price)
+	}
+}
+
+// Push is an atomic operation on the Orderbook that adds an Order
+// to the books at the given price.
+func (o *Orderbook) Push(order Order) error {
+	switch order.Side() {
+	case SELL:
+		return o.Sell.Insert(order)
+	case BUY:
+		err := o.Buy.Insert(order)
+		return err
+	default:
+		return fmt.Errorf("not impl")
+	}
+}
+
+// Fill fills the given Order on the Orderbook.
+// * it is meant to be called as a go function.
+func (o *Orderbook) Fill(ctx context.Context, order Order) error {
+	return fmt.Errorf("not impl")
 }
 
 ////////////////
@@ -183,6 +196,8 @@ func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbo
 // * This tree is a simple binary tree, where left nodes are lesser prices and right
 // nodes are greater in price than the current node.
 type PriceNode struct {
+	sync.Mutex
+
 	val    int64 // to represent price
 	orders []Order
 	right  *PriceNode
@@ -288,6 +303,23 @@ func (t *PriceNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 	panic("should not get here; this smells like a bug")
 }
 
+// Pull is used by the Orderbook to pull an order at a given price.
+// * It is an atomic function and handles its own locking.
+// * It will find and remove an Order at a given Price or return an error
+func (t *PriceNode) Pull(price int64) (Order, error) {
+	// NB: The disparity between having to find and remove suggests that
+	// we could refactor this into a single function called Remove here.
+	pulled, err := t.Find(price)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull: %w", err)
+	}
+	_, err = t.RemoveByID(pulled)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove from books: %w", err)
+	}
+	return pulled, nil
+}
+
 // Orders returns the list of Orders for a given price.
 func (t *PriceNode) Orders(price int64) ([]Order, error) {
 	if t == nil {
@@ -310,42 +342,42 @@ func (t *PriceNode) Orders(price int64) ([]Order, error) {
 		}
 	}
 
-	panic("should not get here; this smells like a bug")
+	return nil, fmt.Errorf("ErrNoOrders")
 }
 
-// RemoveFromPriceList removes an order from the list of orders at a
+// Remove removes an order from the list of orders at a
 // given price in our tree. It does not currently rebalance the tree.
 // TODO: make this rebalance the tree at some threshold.
-func (t *PriceNode) RemoveFromPriceList(order Order) error {
+func (t *PriceNode) RemoveByID(order Order) (Order, error) {
 	if t == nil {
-		return fmt.Errorf("order tree is nil")
+		return nil, fmt.Errorf("order tree is nil")
 	}
 
 	if order.Price() == t.val {
 		for i, ord := range t.orders {
 			if ord.ID() == order.ID() {
 				t.orders = removeV2(t.orders, i)
-				return nil
+				return ord, nil
 			}
 		}
-		return fmt.Errorf("ErrNoExist")
+		return nil, fmt.Errorf("ErrNoExist")
 	}
 
 	if order.Price() > t.val {
 		if t.right != nil {
-			return t.right.RemoveFromPriceList(order)
+			return t.right.RemoveByID(order)
 		}
-		return fmt.Errorf("ErrNoExist")
+		return nil, fmt.Errorf("ErrNoExist")
 	}
 
 	if order.Price() < t.val {
 		if t.left != nil {
-			return t.left.RemoveFromPriceList(order)
+			return t.left.RemoveByID(order)
 		}
-		return fmt.Errorf("ErrNoExist")
+		return nil, fmt.Errorf("ErrNoExist")
 	}
 
-	panic("should not get here; this smells like a bug")
+	return nil, fmt.Errorf("failed to remove: %+V", order)
 }
 
 //Print prints the elements in left-current-right order.
