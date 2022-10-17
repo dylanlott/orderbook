@@ -136,8 +136,8 @@ type Orderbook struct {
 	Sell *PriceNode
 }
 
-//  Pull is an atomic operation on the Orderbook that removes an
-// order from the tree at the given price or returns an error.
+// Pull routes a pull to a price and a side of the Orderbook.
+// It returns that Order or an order.
 func (o *Orderbook) Pull(price int64, side string) (Order, error) {
 	if side == BUY {
 		return o.Buy.Pull(price)
@@ -146,17 +146,12 @@ func (o *Orderbook) Pull(price int64, side string) (Order, error) {
 	}
 }
 
-// Push is an atomic operation on the Orderbook that adds an Order
-// to the books at the given price.
+// Push inserst an order into the book
 func (o *Orderbook) Push(order Order) error {
-	switch order.Side() {
-	case SELL:
+	if order.Side() == BUY {
+		return o.Buy.Insert(order)
+	} else {
 		return o.Sell.Insert(order)
-	case BUY:
-		err := o.Buy.Insert(order)
-		return err
-	default:
-		return fmt.Errorf("not impl")
 	}
 }
 
@@ -313,6 +308,8 @@ func (t *PriceNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 func (t *PriceNode) Pull(price int64) (Order, error) {
 	// NB: The disparity between having to find and remove suggests that
 	// we could refactor this into a single function called Remove here.
+	t.Lock()
+	defer t.Unlock()
 	pulled, err := t.Find(price)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull: %w", err)

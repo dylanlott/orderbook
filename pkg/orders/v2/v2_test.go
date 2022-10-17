@@ -116,7 +116,7 @@ func TestOrderbookPull(t *testing.T) {
 	}
 }
 
-func TestOrderbook_Push(t *testing.T) {
+func TestOrderbookPush(t *testing.T) {
 	type fields struct {
 		Buy  *PriceNode
 		Sell *PriceNode
