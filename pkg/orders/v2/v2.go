@@ -90,36 +90,12 @@ func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbo
 		go func(order Order) {
 			log.Printf("received order %+v", order)
 
-			// insert the order into the correct side of our books
-			switch order.Side() {
-			case "BUY":
-				log.Printf("Buy order: %+v", order)
-				if err := orderbook.Buy.Insert(order); err != nil {
-					status <- OrderState{
-						Order: order,
-						Err:   fmt.Errorf("failed to insert into buy tree: %w", err),
-					}
-					return
-				}
-			case "SELL":
-				log.Printf("Sell order: %+v", order)
-				if err := orderbook.Sell.Insert(order); err != nil {
-					status <- OrderState{
-						Order: order,
-						Err:   fmt.Errorf("failed to insert into sell tree: %w", err),
-					}
-					return
-				}
-			default:
-				panic("must specify an order side")
+			if err := orderbook.Push(order); err != nil {
+				// TODO: how can we define this away?
+				log.Fatalf("failed to push order into books: %v", err)
 			}
 
 			// start attempting to fill the order
-			filled, err := order.Fill(context.Background(), orderbook)
-			status <- OrderState{
-				Order: filled,
-				Err:   err,
-			}
 			out <- order
 		}(o)
 	}
@@ -146,12 +122,24 @@ func (o *Orderbook) Pull(price int64, side string) (Order, error) {
 	}
 }
 
-// Push inserst an order into the book
+// Push inserst an order into the book and starts off the goroutine
+// responsible for filling the Order.
 func (o *Orderbook) Push(order Order) error {
+	ctx := context.TODO()
 	if order.Side() == BUY {
-		return o.Buy.Insert(order)
+		err := o.Buy.Insert(order)
+		if err != nil {
+			return fmt.Errorf("failed to add order to the book: %w", err)
+		}
+		go order.Fill(ctx, o)
+		return nil
 	} else {
-		return o.Sell.Insert(order)
+		err := o.Sell.Insert(order)
+		if err != nil {
+			return fmt.Errorf("failed to add order to the book: %w", err)
+		}
+		go order.Fill(ctx, o)
+		return nil
 	}
 }
 
@@ -214,10 +202,15 @@ func (t *PriceNode) Insert(o Order) error {
 	if t.val == o.Price() {
 		// when we find a price match for the Order's price,
 		// insert the Order into this node's Order list.
+		// lock because we're about to alter coure resource.
+		t.Lock()
+		defer t.Unlock()
+
 		if t.orders == nil {
 			t.orders = make([]Order, 0)
 		}
 		t.orders = append(t.orders, o)
+
 		return nil
 	}
 
@@ -227,17 +220,13 @@ func (t *PriceNode) Insert(o Order) error {
 			return t.left.Insert(o)
 		}
 		return t.left.Insert(o)
-	}
-
-	if o.Price() > t.val {
+	} else {
 		if t.right == nil {
 			t.right = &PriceNode{val: o.Price()}
 			return t.right.Insert(o)
 		}
 		return t.right.Insert(o)
 	}
-
-	panic("should not get here; this smells like a bug")
 }
 
 // Find returns the highest priority Order for a given price point.
@@ -258,16 +247,16 @@ func (t *PriceNode) Find(price int64) (Order, error) {
 	if price > t.val {
 		if t.right != nil {
 			return t.right.Find(price)
+		} else {
+			return nil, fmt.Errorf("no orders at this price")
 		}
-	}
-
-	if price < t.val {
+	} else {
 		if t.left != nil {
 			return t.left.Find(price)
+		} else {
+			return nil, fmt.Errorf("no orders at this price")
 		}
 	}
-
-	panic("should not get here; this smells like a bug")
 }
 
 // Match will iterate through the tree based on the price of the
@@ -353,32 +342,29 @@ func (t *PriceNode) RemoveByID(order Order) (Order, error) {
 	if t == nil {
 		return nil, fmt.Errorf("order tree is nil")
 	}
-
 	if order.Price() == t.val {
 		for i, ord := range t.orders {
 			if ord.ID() == order.ID() {
+				t.Lock()
+				defer t.Unlock()
+
 				t.orders = removeV2(t.orders, i)
 				return ord, nil
 			}
 		}
 		return nil, fmt.Errorf("ErrNoExist")
 	}
-
 	if order.Price() > t.val {
 		if t.right != nil {
 			return t.right.RemoveByID(order)
 		}
 		return nil, fmt.Errorf("ErrNoExist")
-	}
-
-	if order.Price() < t.val {
+	} else {
 		if t.left != nil {
 			return t.left.RemoveByID(order)
 		}
 		return nil, fmt.Errorf("ErrNoExist")
 	}
-
-	return nil, fmt.Errorf("failed to remove: %+V", order)
 }
 
 //Print prints the elements in left-current-right order.
