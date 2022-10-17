@@ -115,3 +115,59 @@ func TestOrderbookPull(t *testing.T) {
 		})
 	}
 }
+
+func TestOrderbook_Push(t *testing.T) {
+	type fields struct {
+		Buy  *PriceNode
+		Sell *PriceNode
+	}
+	type args struct {
+		order Order
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "should push an order into the orderbook",
+			fields: fields{
+				Buy: &PriceNode{
+					Mutex:  sync.Mutex{},
+					val:    50,
+					orders: []Order{},
+					right:  &PriceNode{},
+					left:   &PriceNode{},
+				},
+				Sell: &PriceNode{
+					Mutex:  sync.Mutex{},
+					val:    100,
+					orders: []Order{},
+					right:  &PriceNode{},
+					left:   &PriceNode{},
+				},
+			},
+			args: args{
+				order: &LimitOrder{
+					id:    "foo",
+					price: 100,
+					side:  SELL,
+					Owner: "bar",
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &Orderbook{
+				Buy:  tt.fields.Buy,
+				Sell: tt.fields.Sell,
+			}
+			if err := o.Push(tt.args.order); (err != nil) != tt.wantErr {
+				t.Errorf("Orderbook.Push() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
