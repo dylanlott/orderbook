@@ -80,6 +80,55 @@ type OrderState struct {
 	Err    error
 }
 
+// Worker defines a function meant to be spawned concurrently that listens to the in
+// channel and fills orders as they are received and processes them in their own
+// gouroutine.
+func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbook *Orderbook) {
+	for o := range in {
+
+		// attempt to fill the order
+		go func(order Order) {
+			log.Printf("received order %+v", order)
+
+			// insert the order into the correct side of our books
+			switch order.Side() {
+			case "BUY":
+				log.Printf("Buy order: %+v", order)
+				if err := orderbook.Buy.Insert(order); err != nil {
+					status <- OrderState{
+						Order: order,
+						Err:   fmt.Errorf("failed to insert into buy tree: %w", err),
+					}
+					return
+				}
+			case "SELL":
+				log.Printf("Sell order: %+v", order)
+				if err := orderbook.Sell.Insert(order); err != nil {
+					status <- OrderState{
+						Order: order,
+						Err:   fmt.Errorf("failed to insert into sell tree: %w", err),
+					}
+					return
+				}
+			default:
+				panic("must specify an order side")
+			}
+
+			// start attempting to fill the order
+			filled, err := order.Fill(context.Background(), orderbook)
+			status <- OrderState{
+				Order: filled,
+				Err:   err,
+			}
+			out <- order
+		}(o)
+	}
+}
+
+///////////////
+// Orderbook //
+///////////////
+
 // Orderbook is worked on by Workers.
 // TODO: Turn this into an interface to abstract away the underlying data structure
 type Orderbook struct {
@@ -140,51 +189,6 @@ func (l *LimitOrder) Side() string {
 // an error if there were any issues.
 func (l *LimitOrder) Fill(ctx context.Context, o *Orderbook) (Order, error) {
 	return l, fmt.Errorf("Fill not impl")
-}
-
-// Worker defines a function meant to be spawned concurrently that listens to the in
-// channel and fills orders as they are received and processes them in their own
-// gouroutine.
-func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbook *Orderbook) {
-	for o := range in {
-
-		// attempt to fill the order
-		go func(order Order) {
-			log.Printf("received order %+v", order)
-
-			// insert the order into the correct side of our books
-			switch order.Side() {
-			case "BUY":
-				log.Printf("Buy order: %+v", order)
-				if err := orderbook.Buy.Insert(order); err != nil {
-					status <- OrderState{
-						Order: order,
-						Err:   fmt.Errorf("failed to insert into buy tree: %w", err),
-					}
-					return
-				}
-			case "SELL":
-				log.Printf("Sell order: %+v", order)
-				if err := orderbook.Sell.Insert(order); err != nil {
-					status <- OrderState{
-						Order: order,
-						Err:   fmt.Errorf("failed to insert into sell tree: %w", err),
-					}
-					return
-				}
-			default:
-				panic("must specify an order side")
-			}
-
-			// start attempting to fill the order
-			filled, err := order.Fill(context.Background(), orderbook)
-			status <- OrderState{
-				Order: filled,
-				Err:   err,
-			}
-			out <- order
-		}(o)
-	}
 }
 
 ///////////////////////////
