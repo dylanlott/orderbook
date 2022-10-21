@@ -259,10 +259,6 @@ func TestPriceNode_List(t *testing.T) {
 func compare(t *testing.T, want *Orderbook, got *Orderbook) {
 	if want.Buy != nil {
 		for i, order := range want.Buy.orders {
-			// if got.Buy.orders[i] != order {
-			// 	t.Fail()
-			// }
-
 			g := got.Buy.orders[i]
 			if g.ID() != order.ID() {
 				t.Fail()
@@ -271,10 +267,6 @@ func compare(t *testing.T, want *Orderbook, got *Orderbook) {
 	}
 	if want.Sell != nil {
 		for i, order := range want.Sell.orders {
-			// if got.Sell.orders[i] != order {
-			// 	t.Errorf("wanted: %+v - got %+v ", order, got.Sell.orders[i])
-			// }
-
 			g := got.Sell.orders[i]
 			if g.ID() != order.ID() {
 				t.Fail()
