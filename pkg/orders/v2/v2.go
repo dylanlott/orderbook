@@ -339,8 +339,8 @@ func (t *PriceNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 func (t *PriceNode) Pull(price int64) (Order, error) {
 	// NB: The disparity between having to find and remove suggests that
 	// we could refactor this into a single function called Remove here.
-	t.Lock()
-	defer t.Unlock()
+	// NB: Locking here creates a deadlock. Another code smell.
+	// We should refactor pull to atomically wrap the find and remove logic.
 	pulled, err := t.Find(price)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pull: %w", err)
