@@ -15,19 +15,25 @@ var numFillers = 2
 
 var testOrders = []Order{
 	&LimitOrder{
-		id:    "foo",
-		side:  BUY,
-		price: 100,
+		id:     "foo",
+		side:   BUY,
+		price:  100,
+		open:   1,
+		filled: 0,
 	},
 	&LimitOrder{
-		id:    "buzz",
-		side:  SELL,
-		price: 100,
+		id:     "buzz",
+		side:   SELL,
+		price:  100,
+		open:   1,
+		filled: 0,
 	},
 	&LimitOrder{
-		id:    "bar",
-		side:  BUY,
-		price: 100,
+		id:     "bar",
+		side:   BUY,
+		price:  100,
+		open:   1,
+		filled: 0,
 	},
 }
 
@@ -102,9 +108,11 @@ func TestOrderbookPull(t *testing.T) {
 				side:  BUY,
 			},
 			want: &LimitOrder{
-				id:    "foo",
-				price: 100,
-				side:  BUY,
+				id:     "foo",
+				side:   BUY,
+				price:  100,
+				open:   1,
+				filled: 0,
 			},
 			wantErr: false,
 		},
@@ -113,11 +121,11 @@ func TestOrderbookPull(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := tt.fields.book.Pull(tt.args.price, tt.args.side)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("PriceNode.Find() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("PriceNode.Pull() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("PriceNode.Find() = %v, want %v", got, tt.want)
+				t.Errorf("PriceNode.Pull() got = %v, wantErr %v", got, tt.want)
 			}
 		})
 	}
@@ -209,36 +217,8 @@ func TestOrderbookPush(t *testing.T) {
 	}
 }
 
-func compare(t *testing.T, want *Orderbook, got *Orderbook) {
-	if want.Buy != nil {
-		for i, order := range want.Buy.orders {
-			// if got.Buy.orders[i] != order {
-			// 	t.Fail()
-			// }
-
-			g := got.Buy.orders[i]
-			if g.ID() != order.ID() {
-				t.Fail()
-			}
-		}
-	}
-	if want.Sell != nil {
-		for i, order := range want.Sell.orders {
-			// if got.Sell.orders[i] != order {
-			// 	t.Errorf("wanted: %+v - got %+v ", order, got.Sell.orders[i])
-			// }
-
-			g := got.Sell.orders[i]
-			if g.ID() != order.ID() {
-				t.Fail()
-			}
-		}
-	}
-}
-
 func TestPriceNode_List(t *testing.T) {
 	type fields struct {
-		Mutex  sync.Mutex
 		val    int64
 		orders []Order
 		right  *PriceNode
@@ -269,5 +249,32 @@ func TestPriceNode_List(t *testing.T) {
 				t.Errorf("PriceNode.List() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func compare(t *testing.T, want *Orderbook, got *Orderbook) {
+	if want.Buy != nil {
+		for i, order := range want.Buy.orders {
+			// if got.Buy.orders[i] != order {
+			// 	t.Fail()
+			// }
+
+			g := got.Buy.orders[i]
+			if g.ID() != order.ID() {
+				t.Fail()
+			}
+		}
+	}
+	if want.Sell != nil {
+		for i, order := range want.Sell.orders {
+			// if got.Sell.orders[i] != order {
+			// 	t.Errorf("wanted: %+v - got %+v ", order, got.Sell.orders[i])
+			// }
+
+			g := got.Sell.orders[i]
+			if g.ID() != order.ID() {
+				t.Fail()
+			}
+		}
 	}
 }
