@@ -8,6 +8,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/dylanlott/orderbook/pkg/accounts"
 )
 
 // BUY or SELL side string constant definitions
@@ -47,15 +49,22 @@ func logState(orders map[string]Order) {
 // Order holds a second approach at the Order interface
 // that incorporates lessons learned from the first time around.
 type Order interface {
+	OwnerID() string
 	ID() string
 	Price() int64
 	Side() string
 	Open() uint64
+
+	// Fill adds a transaction that ties a Transaction event to an Account.
+	Fill(tx *Transaction) ([]*Transaction, error)
+	History() []*Transaction
 }
 
 // LimitOrder fulfills the Order interface. FillStrategy implements a limit order
 // fill algorithm.
 type LimitOrder struct {
+	sync.Mutex
+
 	// Holds a string identifier to the Owner of the Order.
 	Owner string
 	// Holds any errors that occurred during processing
@@ -109,7 +118,7 @@ func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbo
 			}
 
 			// start attempting to fill the order
-			listenForCompletion(out, order)
+			// listenForCompletion(out, order)
 		}(o)
 
 	}
@@ -123,11 +132,11 @@ func Filler(in <-chan Order, out chan<- Order, book *Orderbook) {
 	}
 }
 
-func listenForCompletion(completed chan<- Order, order Order) {
-	// TODO: This should block until we're filled
-	completed <- order
-	log.Printf("TODO: Wait for Order to Fill")
-}
+// func listenForCompletion(completed chan<- Order, order Order) {
+// 	// TODO: This should block until we're filled
+// 	completed <- order
+// 	// log.Printf("TODO: Wait for Order to Fill")
+// }
 
 ///////////////
 // Orderbook //
@@ -138,6 +147,8 @@ func listenForCompletion(completed chan<- Order, order Order) {
 type Orderbook struct {
 	Buy  *PriceNode
 	Sell *PriceNode
+
+	Accounts accounts.AccountManager
 }
 
 // Pull routes a pull to a price and a side of the Orderbook.
@@ -169,6 +180,86 @@ func (o *Orderbook) Push(order Order) error {
 	}
 }
 
+// Match will match a Buy to a Sell and attempts to charge the buyer.
+func (o *Orderbook) Match(buyOrder Order) (Order, error) {
+	if buyOrder.Side() == BUY {
+		sellOrder, err := o.Sell.Find(buyOrder.Price())
+		if err != nil {
+			return nil, err
+		}
+
+		buyer, err := o.Accounts.Get(buyOrder.OwnerID())
+		if err != nil {
+			return nil, err
+		}
+		seller, err := o.Accounts.Get(sellOrder.OwnerID())
+		if err != nil {
+			return nil, err
+		}
+
+		if buyOrder.Open() < sellOrder.Open() {
+			log.Printf("order wants %v - found order has %v", buyOrder.Open(), sellOrder.Open())
+			return nil, fmt.Errorf("partial fills not impl")
+		}
+
+		if buyOrder.Open() >= sellOrder.Open() {
+			// NB: be careful, this is lossy precision.
+			total := buyOrder.Open() * uint64(buyOrder.Price())
+
+			// Attempt to transfer balances
+			_, err := o.Accounts.Tx(buyer.UserID(), seller.UserID(), float64(total))
+			if err != nil {
+				return buyOrder, err
+			}
+
+			// Add a record to the Sell side transaction pointing to the Buyer.
+			_, err = sellOrder.Fill(&Transaction{
+				AccountID: buyOrder.OwnerID(),
+				Quantity:  buyOrder.Open(),
+				Price:     uint64(buyOrder.Price()),
+				Total:     uint64(buyOrder.Price()) * buyOrder.Open(),
+			})
+			if err != nil {
+				return buyOrder, fmt.Errorf("failed to fill sell side order: %+v", err)
+			}
+
+			// Add record of the Sell side asset to the Buy side order.
+			_, err = buyOrder.Fill(&Transaction{
+				AccountID: sellOrder.OwnerID(),
+				Quantity:  buyOrder.Open(),
+				Price:     uint64(sellOrder.Price()),
+				Total:     total,
+			})
+			if err != nil {
+				log.Printf("failed to update account: %v", err)
+				return buyOrder, fmt.Errorf("failed to add order fill transaction receipt: %+v", err)
+			}
+
+			// cleanup orders from books if successfully transferred funds.
+			if buyOrder.Open() == 0 {
+				log.Printf("REMOVING BUY ORDER")
+				_, err := o.Buy.RemoveByID(buyOrder)
+				if err != nil {
+					log.Printf("failed to remove order from books: %v", err)
+				}
+			}
+			if sellOrder.Open() == 0 {
+				log.Printf("REMOVING SELL ORDER")
+				_, err := o.Sell.RemoveByID(sellOrder)
+				if err != nil {
+					log.Printf("failed to remove order from books: %v", err)
+				}
+			}
+
+			return buyOrder, nil
+		}
+	} else {
+		return nil, fmt.Errorf("ErrSellSide")
+	}
+
+	return nil, fmt.Errorf("not impl")
+}
+
 ////////////////
 // LimitOrder //
 ////////////////
@@ -191,6 +282,41 @@ func (l *LimitOrder) Side() string {
 // Open returns the amount of this order still open for purchase
 func (l *LimitOrder) Open() uint64 {
 	return l.open - l.filled
+}
+
+// History returns the transaction receipts for this order.
+func (l *LimitOrder) History() []*Transaction {
+	return l.Transactions
+}
+
+// Fill will add a Transaction to the tx list of an order or report
+// an error.
+func (l *LimitOrder) Fill(tx *Transaction) ([]*Transaction, error) {
+	if l.Transactions == nil {
+		l.Transactions = make([]*Transaction, 0)
+	}
+	// NB: ensure we call the method instead of accesssing the field directly.
+	// This is probably a code smell 👃
+	if tx.Quantity > l.Open() {
+		return nil, fmt.Errorf("cannot purchase more than are available: %v", tx)
+	}
+	if tx.Price < uint64(l.price) {
+		return nil, fmt.Errorf("cannot pay less than limit order price")
+	}
+
+	// NB: We probably want to only ever increase the filled quantity or maybe
+	// move to a model where we entirely calculate open and filled by
+	// analyzing the transaction list instead of maintaining them as fields
+	// on the LimitOrder.
+	l.filled = l.filled + tx.Quantity
+	l.Transactions = append(l.Transactions, tx)
+
+	return l.Transactions, nil
+}
+
+// Returns the owner ID of this order. It maps to the account ID.
+func (l *LimitOrder) OwnerID() string {
+	return l.Owner
 }
 
 ///////////////////////////

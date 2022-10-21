@@ -5,6 +5,9 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+
+	"github.com/dylanlott/orderbook/pkg/accounts"
+	"github.com/matryer/is"
 )
 
 // number of workers that will process orders
@@ -71,6 +74,7 @@ func TestWorker(t *testing.T) {
 		}
 	}()
 
+	t.Logf("wg: %+v", wg)
 	wg.Wait()
 }
 
@@ -277,4 +281,66 @@ func compare(t *testing.T, want *Orderbook, got *Orderbook) {
 			}
 		}
 	}
+}
+
+func TestMatch(t *testing.T) {
+	is := is.New(t)
+	// Create a fresh orderbook and pass it to Worker
+	orderbook := &Orderbook{
+		Buy:  &PriceNode{val: 0.0},
+		Sell: &PriceNode{val: 0.0},
+		Accounts: &accounts.InMemoryManager{
+			Accounts: map[string]*accounts.UserAccount{
+				"alice@test.com": {
+					Email:          "alice@test.com",
+					CurrentBalance: 1000,
+				},
+				"bob@test.com": {
+					Email:          "bob@test.com",
+					CurrentBalance: 1000,
+				},
+			},
+		},
+	}
+
+	buy := &LimitOrder{
+		Owner:  "alice@test.com",
+		id:     "foo",
+		price:  100,
+		side:   BUY,
+		open:   1,
+		filled: 0,
+	}
+	is.NoErr(orderbook.Push(buy))
+
+	sell := &LimitOrder{
+		Owner:  "bob@test.com",
+		id:     "bar",
+		price:  100,
+		side:   SELL,
+		open:   1,
+		filled: 0,
+	}
+	is.NoErr(orderbook.Push(sell))
+
+	// assert that orderbook matches and fills an order
+	filled, err := orderbook.Match(buy)
+	is.NoErr(err)
+	is.True(filled.ID() == buy.id)
+
+	// assert that a transaction receipt is created
+	buyReceipt := buy.History()[0]
+	is.Equal(len(buy.History()), 1)
+	is.True(buyReceipt.AccountID == sell.OwnerID())
+
+	// assert balances were adjusted
+	updatedBuyer, err := orderbook.Accounts.Get(buy.OwnerID())
+	is.NoErr(err)
+	is.Equal(updatedBuyer.Balance(), float64(900))
+
+	// assert orders are removed from books
+	_, err = orderbook.Buy.Find(buy.price)
+	is.True(err != nil)
+	_, err = orderbook.Sell.Find(buy.price)
+	is.True(err != nil)
 }
