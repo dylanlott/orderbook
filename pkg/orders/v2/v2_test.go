@@ -10,6 +10,9 @@ import (
 // number of workers that will process orders
 var numWorkers = 2
 
+// numFillers is the number of fill workers that is started.
+var numFillers = 2
+
 var testOrders = []Order{
 	&LimitOrder{
 		id:    "foo",
@@ -43,6 +46,10 @@ func TestWorker(t *testing.T) {
 
 	for i := 0; i < numWorkers; i++ {
 		go Worker(pending, complete, status, orderbook)
+	}
+
+	for i := 0; i < numFillers; i++ {
+		go Filler(pending, complete, orderbook)
 	}
 
 	var wg = &sync.WaitGroup{}
@@ -128,6 +135,7 @@ func TestOrderbookPush(t *testing.T) {
 		name    string
 		fields  fields
 		args    args
+		want    *Orderbook
 		wantErr bool
 	}{
 		{
@@ -150,10 +158,36 @@ func TestOrderbookPush(t *testing.T) {
 			},
 			args: args{
 				order: &LimitOrder{
-					id:    "foo",
-					price: 100,
-					side:  SELL,
-					Owner: "bar",
+					id:     "foo",
+					price:  100,
+					side:   SELL,
+					Owner:  "bar",
+					open:   1,
+					filled: 0,
+				},
+			},
+			want: &Orderbook{
+				Buy: &PriceNode{
+					val:    50,
+					orders: []Order{},
+					right:  &PriceNode{},
+					left:   &PriceNode{},
+				},
+				Sell: &PriceNode{
+					val: 100,
+					orders: []Order{
+						&LimitOrder{
+							id:           "foo",
+							price:        100,
+							side:         SELL,
+							Owner:        "bar",
+							open:         1,
+							filled:       0,
+							Transactions: []*Transaction{},
+						},
+					},
+					right: &PriceNode{},
+					left:  &PriceNode{},
 				},
 			},
 			wantErr: false,
@@ -167,6 +201,72 @@ func TestOrderbookPush(t *testing.T) {
 			}
 			if err := o.Push(tt.args.order); (err != nil) != tt.wantErr {
 				t.Errorf("Orderbook.Push() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				compare(t, tt.want, o)
+			}
+		})
+	}
+}
+
+func compare(t *testing.T, want *Orderbook, got *Orderbook) {
+	if want.Buy != nil {
+		for i, order := range want.Buy.orders {
+			// if got.Buy.orders[i] != order {
+			// 	t.Fail()
+			// }
+
+			g := got.Buy.orders[i]
+			if g.ID() != order.ID() {
+				t.Fail()
+			}
+		}
+	}
+	if want.Sell != nil {
+		for i, order := range want.Sell.orders {
+			// if got.Sell.orders[i] != order {
+			// 	t.Errorf("wanted: %+v - got %+v ", order, got.Sell.orders[i])
+			// }
+
+			g := got.Sell.orders[i]
+			if g.ID() != order.ID() {
+				t.Fail()
+			}
+		}
+	}
+}
+
+func TestPriceNode_List(t *testing.T) {
+	type fields struct {
+		Mutex  sync.Mutex
+		val    int64
+		orders []Order
+		right  *PriceNode
+		left   *PriceNode
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    []Order
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tr := &PriceNode{
+				val:    tt.fields.val,
+				orders: tt.fields.orders,
+				right:  tt.fields.right,
+				left:   tt.fields.left,
+			}
+			got, err := tr.List()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("PriceNode.List() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("PriceNode.List() = %v, want %v", got, tt.want)
 			}
 		})
 	}

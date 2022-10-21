@@ -4,7 +4,6 @@
 package v2
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"sync"
@@ -51,7 +50,7 @@ type Order interface {
 	ID() string
 	Price() int64
 	Side() string
-	Fill(ctx context.Context, o *Orderbook) (Order, error)
+	Open() uint64
 }
 
 // LimitOrder fulfills the Order interface. FillStrategy implements a limit order
@@ -61,6 +60,8 @@ type LimitOrder struct {
 	Owner string
 	// Holds any errors that occurred during processing
 	Err error
+	// transactions is a list of actions on this order
+	Transactions []*Transaction
 
 	//// Private fields
 	// id is a unique identifier
@@ -70,6 +71,19 @@ type LimitOrder struct {
 	price int64
 	// Returns BUY if its a buy order, SELL if its a sell order.
 	side string
+	// open represents the number of items at the price being ordered
+	open uint64
+	// filled is a quantity of this order that has been filled,
+	// aka purchased at a specific price
+	filled uint64
+}
+
+// Transaction
+type Transaction struct {
+	AccountID string // who filled the order
+	Quantity  uint64 // The amount they filled it for
+	Price     uint64 // The price they paid
+	Total     uint64 // The total of the Transaction.
 }
 
 // OrderState holds the current state of an OrderV2 and
@@ -85,7 +99,6 @@ type OrderState struct {
 // gouroutine.
 func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbook *Orderbook) {
 	for o := range in {
-
 		// attempt to fill the order
 		go func(order Order) {
 			log.Printf("received order %+v", order)
@@ -96,9 +109,24 @@ func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbo
 			}
 
 			// start attempting to fill the order
-			out <- order
+			listenForCompletion(out, order)
 		}(o)
+
 	}
+}
+
+func Filler(in <-chan Order, out chan<- Order, book *Orderbook) {
+	// make this constantly walk the tree
+	for {
+		book.Buy.Print()
+		time.Sleep(time.Second * 2)
+	}
+}
+
+func listenForCompletion(completed chan<- Order, order Order) {
+	// TODO: This should block until we're filled
+	completed <- order
+	log.Printf("TODO: Wait for Order to Fill")
 }
 
 ///////////////
@@ -125,28 +153,20 @@ func (o *Orderbook) Pull(price int64, side string) (Order, error) {
 // Push inserst an order into the book and starts off the goroutine
 // responsible for filling the Order.
 func (o *Orderbook) Push(order Order) error {
-	ctx := context.TODO()
 	if order.Side() == BUY {
 		err := o.Buy.Insert(order)
 		if err != nil {
 			return fmt.Errorf("failed to add order to the book: %w", err)
 		}
-		go order.Fill(ctx, o)
 		return nil
 	} else {
 		err := o.Sell.Insert(order)
 		if err != nil {
 			return fmt.Errorf("failed to add order to the book: %w", err)
 		}
-		go order.Fill(ctx, o)
+		// TODO: kick off order for filling
 		return nil
 	}
-}
-
-// Fill fills the given Order on the Orderbook.
-// * it is meant to be called as a go function.
-func (o *Orderbook) Fill(ctx context.Context, order Order) error {
-	return fmt.Errorf("not impl")
 }
 
 ////////////////
@@ -168,10 +188,9 @@ func (l *LimitOrder) Side() string {
 	return l.side
 }
 
-// Fill is a synchronous function that implements a LimitOrder fill and returns
-// an error if there were any issues.
-func (l *LimitOrder) Fill(ctx context.Context, o *Orderbook) (Order, error) {
-	return l, fmt.Errorf("Fill not impl")
+// Open returns the amount of this order still open for purchase
+func (l *LimitOrder) Open() uint64 {
+	return l.open - l.filled
 }
 
 ///////////////////////////
@@ -189,6 +208,29 @@ type PriceNode struct {
 	orders []Order
 	right  *PriceNode
 	left   *PriceNode
+}
+
+// List grabs a lock on the whole tree and reads all of the orders from it.
+func (t *PriceNode) List() ([]Order, error) {
+	t.Lock()
+	defer t.Unlock()
+
+	orders := []Order{}
+	stack := []*PriceNode{}
+	var current *PriceNode
+	for t != nil || len(stack) > 0 {
+		if current != nil {
+			stack = append(stack, t)
+			current = current.left
+		} else {
+			current = stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			fmt.Printf("visited price: %d", t.val)
+			orders = append(orders, t.orders...)
+			current = current.right
+		}
+	}
+	return orders, nil
 }
 
 // Insert will add an Order to the Tree. It traverses until it finds the right price
@@ -307,6 +349,7 @@ func (t *PriceNode) Pull(price int64) (Order, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to remove from books: %w", err)
 	}
+	log.Printf("pulling order: %+v", pulled)
 	return pulled, nil
 }
 
