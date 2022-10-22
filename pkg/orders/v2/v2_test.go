@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
+
 	"github.com/matryer/is"
 )
 
@@ -324,6 +325,10 @@ func TestMatch(t *testing.T) {
 	buyReceipt := buy.History()[0]
 	is.Equal(len(buy.History()), 1)
 	is.True(buyReceipt.AccountID == sell.OwnerID())
+
+	is.Equal(len(sell.History()), 1)
+	sellReceipt := sell.History()[0]
+	is.True(sellReceipt.AccountID == buy.OwnerID())
 
 	// assert balances were adjusted
 	updatedBuyer, err := orderbook.Accounts.Get(buy.OwnerID())

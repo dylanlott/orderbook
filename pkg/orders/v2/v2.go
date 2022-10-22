@@ -181,6 +181,7 @@ func (o *Orderbook) Push(order Order) error {
 }
 
 // Match will match a Buy to a Sell and attempts to charge the buyer.
+// TODO: ensure this is atomic.
 func (o *Orderbook) Match(buyOrder Order) (Order, error) {
 	if buyOrder.Side() == BUY {
 		sellOrder, err := o.Sell.Find(buyOrder.Price())
@@ -202,9 +203,10 @@ func (o *Orderbook) Match(buyOrder Order) (Order, error) {
 			return nil, fmt.Errorf("partial fills not impl")
 		}
 
-		if buyOrder.Open() >= sellOrder.Open() {
+		available := sellOrder.Open()
+		if buyOrder.Open() >= available {
 			// NB: be careful, this is lossy precision.
-			total := buyOrder.Open() * uint64(buyOrder.Price())
+			total := available * uint64(sellOrder.Price())
 
 			// Attempt to transfer balances
 			_, err := o.Accounts.Tx(buyer.UserID(), seller.UserID(), float64(total))
@@ -212,12 +214,16 @@ func (o *Orderbook) Match(buyOrder Order) (Order, error) {
 				return buyOrder, err
 			}
 
+			//NB: These two Fill calls could potentially fail and leave us in a
+			// weird state. We need to figure out how to make this atomic.
+			// Maybe orders should be kept in a simpler data store?
+
 			// Add a record to the Sell side transaction pointing to the Buyer.
 			_, err = sellOrder.Fill(&Transaction{
 				AccountID: buyOrder.OwnerID(),
-				Quantity:  buyOrder.Open(),
-				Price:     uint64(buyOrder.Price()),
-				Total:     uint64(buyOrder.Price()) * buyOrder.Open(),
+				Quantity:  available,
+				Price:     uint64(sellOrder.Price()),
+				Total:     uint64(sellOrder.Price()) * available,
 			})
 			if err != nil {
 				return buyOrder, fmt.Errorf("failed to fill sell side order: %+v", err)
@@ -237,14 +243,12 @@ func (o *Orderbook) Match(buyOrder Order) (Order, error) {
 
 			// cleanup orders from books if successfully transferred funds.
 			if buyOrder.Open() == 0 {
-				log.Printf("REMOVING BUY ORDER")
 				_, err := o.Buy.RemoveByID(buyOrder)
 				if err != nil {
 					log.Printf("failed to remove order from books: %v", err)
 				}
 			}
 			if sellOrder.Open() == 0 {
-				log.Printf("REMOVING SELL ORDER")
 				_, err := o.Sell.RemoveByID(sellOrder)
 				if err != nil {
 					log.Printf("failed to remove order from books: %v", err)
