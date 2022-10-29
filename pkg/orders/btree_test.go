@@ -124,3 +124,11 @@ func setupTree(t *testing.T) *TreeNode {
 	is.NoErr(err)
 	return root
 }
+
+func TestTreeNode_InOrder(t *testing.T) {
+	is := is.New(t)
+	tree := setupTree(t)
+	orders := tree.InOrder()
+	is.True(len(orders) > 0)
+	is.Equal(len(orders), 6)
+}

@@ -139,6 +139,26 @@ func (t *TreeNode) Orders(price float64) ([]Order, error) {
 	panic("should not get here; this smells like a bug")
 }
 
+func (t *TreeNode) InOrder() []Order {
+	return inOrderTraversal(t)
+}
+
+func inOrderTraversal(root *TreeNode) []Order {
+	if root == nil {
+		return nil
+	}
+
+	left := inOrderTraversal(root.left)
+	right := inOrderTraversal(root.right)
+
+	output := make([]Order, 0)
+	output = append(output, left...)
+	output = append(output, root.orders...)
+	output = append(output, right...)
+
+	return output
+}
+
 // RemoveFromPriceList removes an order from the list of orders at a
 // given price in our tree. It does not currently rebalance the tree.
 // TODO: make this rebalance the tree at some threshold.
