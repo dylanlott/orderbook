@@ -75,7 +75,6 @@ func TestWorker(t *testing.T) {
 		}
 	}()
 
-	t.Logf("wg: %+v", wg)
 	wg.Wait()
 }
 
