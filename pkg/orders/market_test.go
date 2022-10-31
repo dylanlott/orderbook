@@ -200,7 +200,6 @@ func Test_market_Fill(t *testing.T) {
 					done:           make(chan Order),
 				},
 			},
-
 			assertions: func(t *testing.T, fields fields, args args, m *market) {
 				got := <-args.fillOrder.Done()
 				is.Equal(got.ID(), args.fillOrder.ID())
@@ -231,7 +230,7 @@ func Test_market_Fill(t *testing.T) {
 
 			// NB: This could miss failures if they occur after 1 second,
 			// but is necessary to hold open.
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second)
 		})
 	}
 }
