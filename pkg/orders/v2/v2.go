@@ -20,7 +20,10 @@ const (
 	SELL string = "SELL"
 )
 
-// StateMonitor returns a channel that outputts OrderStates as its receives them.
+const StatusUnfilled = "unfilled"
+const StatusFilled = "filled"
+
+// StateMonitor returns a channel that outputs OrderStates as its receives them.
 func StateMonitor() chan OrderState {
 	updates := make(chan OrderState)
 	orderStatus := make(map[string]Order)
@@ -46,6 +49,10 @@ func logState(orders map[string]Order) {
 	log.Printf("%+v\n", orders)
 }
 
+////////////////////
+// ORDERS INTERFACE
+////////////////////
+
 // Order holds a second approach at the Order interface
 // that incorporates lessons learned from the first time around.
 type Order interface {
@@ -54,11 +61,12 @@ type Order interface {
 	Price() int64
 	Side() string
 	Open() uint64
-
-	// Fill adds a transaction that ties a Transaction event to an Account.
-	Fill(tx *Transaction) ([]*Transaction, error)
 	History() []*Transaction
 }
+
+//////////////////////////////
+// LIMIT ORDER IMPLEMENTATION
+//////////////////////////////
 
 // LimitOrder fulfills the Order interface. FillStrategy implements a limit order
 // fill algorithm.
@@ -103,9 +111,8 @@ type OrderState struct {
 	Err    error
 }
 
-// Worker defines a function meant to be spawned concurrently that listens to the in
-// channel and fills orders as they are received and processes them in their own
-// gouroutine.
+// A Worker listens for orders from in, inserts them into the books, and then
+// starts a filler for that Order.
 func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbook *Orderbook) {
 	for o := range in {
 		// attempt to fill the order
@@ -118,47 +125,49 @@ func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbo
 			}
 
 			// start attempting to fill the order
-			// listenForCompletion(out, order)
+			Filler(out, order, status, orderbook)
 		}(o)
-
 	}
 }
 
-func Filler(in <-chan Order, out chan<- Order, book *Orderbook) {
-	// make this constantly walk the tree
-	for {
-		book.Buy.Print()
-		time.Sleep(time.Second * 2)
+// Filler will attempt to fill the Order until it's filled and then
+// reports it to the output channel. It's a blocking function as it's
+// meant to return only when the Order is filled.
+func Filler(completed chan<- Order, order Order, status chan<- OrderState, book *Orderbook) {
+	for order.Open() > 0 {
+		_, err := book.attemptFill(order)
+		if err != nil {
+			log.Printf("attemptFill failed: %+v", err)
+			// notify state that we failed to fill this order.
+			status <- OrderState{
+				Err:    err,
+				Order:  order,
+				Status: StatusUnfilled,
+			}
+			return
+		}
 	}
+	log.Printf("FILLED ORDER %+v", order)
+	status <- OrderState{
+		Order:  order,
+		Status: StatusFilled,
+		Err:    nil,
+	}
+	completed <- order
 }
-
-// func listenForCompletion(completed chan<- Order, order Order) {
-// 	// TODO: This should block until we're filled
-// 	completed <- order
-// 	// log.Printf("TODO: Wait for Order to Fill")
-// }
 
 ///////////////
 // Orderbook //
 ///////////////
 
-// Orderbook is worked on by Workers.
-// TODO: Turn this into an interface to abstract away the underlying data structure
+// Orderbook binds a buy side and sell side order tree to an AccountManager.
+// Orders should only ever be Push'd into the books and fill should happen
+// entirely through attemptFill, a private method for Workers to call.
 type Orderbook struct {
 	Buy  *PriceNode
 	Sell *PriceNode
 
 	Accounts accounts.AccountManager
-}
-
-// Pull routes a pull to a price and a side of the Orderbook.
-// It returns that Order or an order.
-func (o *Orderbook) Pull(price int64, side string) (Order, error) {
-	if side == BUY {
-		return o.Buy.Pull(price)
-	} else {
-		return o.Sell.Pull(price)
-	}
 }
 
 // Push inserst an order into the book and starts off the goroutine
@@ -175,93 +184,36 @@ func (o *Orderbook) Push(order Order) error {
 		if err != nil {
 			return fmt.Errorf("failed to add order to the book: %w", err)
 		}
-		// TODO: kick off order for filling
+
 		return nil
 	}
 }
 
-// Match will match a Buy to a Sell and attempts to charge the buyer.
-// TODO: ensure this is atomic.
-func (o *Orderbook) Match(buyOrder Order) (Order, error) {
-	if buyOrder.Side() == BUY {
-		sellOrder, err := o.Sell.Find(buyOrder.Price())
+// Fill is meant to be called concurrently and works on the Orderbook.
+func (o *Orderbook) attemptFill(fillOrder Order) (Order, error) {
+	if fillOrder.Side() == BUY {
+		// handle buy order
+		sellOrders, err := o.Sell.Orders(fillOrder.Price())
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to list orders: %+v", err)
 		}
 
-		buyer, err := o.Accounts.Get(buyOrder.OwnerID())
-		if err != nil {
-			return nil, err
-		}
-		seller, err := o.Accounts.Get(sellOrder.OwnerID())
-		if err != nil {
-			return nil, err
-		}
+		first := sellOrders[0]
+		log.Printf("first priority sellOrder: %+v", first)
 
-		if buyOrder.Open() < sellOrder.Open() {
-			log.Printf("order wants %v - found order has %v", buyOrder.Open(), sellOrder.Open())
-			return nil, fmt.Errorf("partial fills not impl")
-		}
-
-		available := sellOrder.Open()
-		if buyOrder.Open() >= available {
-			// NB: be careful, this is lossy precision.
-			total := available * uint64(sellOrder.Price())
-
-			// Attempt to transfer balances
-			_, err := o.Accounts.Tx(buyer.UserID(), seller.UserID(), float64(total))
-			if err != nil {
-				return buyOrder, err
-			}
-
-			//NB: These two Fill calls could potentially fail and leave us in a
-			// weird state. We need to figure out how to make this atomic.
-			// Maybe orders should be kept in a simpler data store?
-
-			// Add a record to the Sell side transaction pointing to the Buyer.
-			_, err = sellOrder.Fill(&Transaction{
-				AccountID: buyOrder.OwnerID(),
-				Quantity:  available,
-				Price:     uint64(sellOrder.Price()),
-				Total:     uint64(sellOrder.Price()) * available,
-			})
-			if err != nil {
-				return buyOrder, fmt.Errorf("failed to fill sell side order: %+v", err)
-			}
-
-			// Add record of the Sell side asset to the Buy side order.
-			_, err = buyOrder.Fill(&Transaction{
-				AccountID: sellOrder.OwnerID(),
-				Quantity:  buyOrder.Open(),
-				Price:     uint64(sellOrder.Price()),
-				Total:     total,
-			})
-			if err != nil {
-				log.Printf("failed to update account: %v", err)
-				return buyOrder, fmt.Errorf("failed to add order fill transaction receipt: %+v", err)
-			}
-
-			// cleanup orders from books if successfully transferred funds.
-			if buyOrder.Open() == 0 {
-				_, err := o.Buy.RemoveByID(buyOrder)
-				if err != nil {
-					log.Printf("failed to remove order from books: %v", err)
-				}
-			}
-			if sellOrder.Open() == 0 {
-				_, err := o.Sell.RemoveByID(sellOrder)
-				if err != nil {
-					log.Printf("failed to remove order from books: %v", err)
-				}
-			}
-
-			return buyOrder, nil
-		}
+		return fillOrder, fmt.Errorf("failed to fill: %v", fillOrder)
 	} else {
-		return nil, fmt.Errorf("ErrSellSide")
-	}
+		// handle sell order
+		buyOrders, err := o.Buy.Orders(fillOrder.Price())
+		if err != nil {
+			return nil, fmt.Errorf("failed to list orders: %+v", err)
+		}
 
-	return nil, fmt.Errorf("not impl")
+		first := buyOrders[0]
+		log.Printf("first priority buyOrder: %+v", first)
+
+		return fillOrder, fmt.Errorf("failed to fill: %v", fillOrder)
+	}
 }
 
 ////////////////
@@ -439,6 +391,9 @@ func (t *PriceNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 		return
 	}
 
+	t.Lock()
+	defer t.Unlock()
+
 	if fillOrder.Price() == t.val {
 		// callback with first order in the list
 		bookOrder := t.orders[0]
@@ -460,7 +415,7 @@ func (t *PriceNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 		}
 	}
 
-	panic("should not get here; this smells like a bug")
+	log.Fatalf("error: fillOrder should not get here: %+v", fillOrder)
 }
 
 // Pull is used by the Orderbook to pull an order at a given price.
@@ -488,6 +443,9 @@ func (t *PriceNode) Orders(price int64) ([]Order, error) {
 	if t == nil {
 		return nil, fmt.Errorf("order tree is nil")
 	}
+
+	t.Lock()
+	defer t.Unlock()
 
 	if t.val == price {
 		return t.orders, nil
