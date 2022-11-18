@@ -33,7 +33,6 @@ func StateMonitor() chan OrderState {
 		for {
 			select {
 			case s := <-updates:
-				log.Printf("received state update: %+v", s)
 				orderStatus[s.Order.ID()] = s.Order
 			case <-ticker.C:
 				logState(orderStatus)
@@ -46,7 +45,7 @@ func StateMonitor() chan OrderState {
 
 // a simple convenience function to display the current state of the engine.
 func logState(orders map[string]Order) {
-	log.Printf("%+v\n", orders)
+	fmt.Printf("orders: %v\n", orders)
 }
 
 ////////////////////
@@ -61,6 +60,7 @@ type Order interface {
 	Price() int64
 	Side() string
 	Open() uint64
+	Fill(tx *Transaction) ([]*Transaction, error)
 	History() []*Transaction
 }
 
@@ -118,13 +118,13 @@ func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbo
 		// attempt to fill the order
 		go func(order Order) {
 			log.Printf("received order %+v", order)
-
 			if err := orderbook.Push(order); err != nil {
-				// TODO: how can we define this away?
-				log.Fatalf("failed to push order into books: %v", err)
+				status <- OrderState{
+					Order:  order,
+					Status: StatusUnfilled,
+					Err:    fmt.Errorf("failed to push order: %+v", err),
+				}
 			}
-
-			// start attempting to fill the order
 			Filler(out, order, status, orderbook)
 		}(o)
 	}
@@ -137,17 +137,15 @@ func Filler(completed chan<- Order, order Order, status chan<- OrderState, book 
 	for order.Open() > 0 {
 		_, err := book.attemptFill(order)
 		if err != nil {
-			log.Printf("attemptFill failed: %+v", err)
 			// notify state that we failed to fill this order.
 			status <- OrderState{
-				Err:    err,
+				Err:    fmt.Errorf("attmemptFill failed: %v", err),
 				Order:  order,
 				Status: StatusUnfilled,
 			}
-			return
+			continue
 		}
 	}
-	log.Printf("FILLED ORDER %+v", order)
 	status <- OrderState{
 		Order:  order,
 		Status: StatusFilled,
@@ -170,49 +168,22 @@ type Orderbook struct {
 	Accounts accounts.AccountManager
 }
 
-// Push inserst an order into the book and starts off the goroutine
-// responsible for filling the Order.
+// Push inserts an order into the correct side of the books.
 func (o *Orderbook) Push(order Order) error {
 	if order.Side() == BUY {
-		err := o.Buy.Insert(order)
-		if err != nil {
-			return fmt.Errorf("failed to add order to the book: %w", err)
-		}
-		return nil
+		return o.Buy.Insert(order)
 	} else {
-		err := o.Sell.Insert(order)
-		if err != nil {
-			return fmt.Errorf("failed to add order to the book: %w", err)
-		}
-
-		return nil
+		return o.Sell.Insert(order)
 	}
 }
 
 // Fill is meant to be called concurrently and works on the Orderbook.
 func (o *Orderbook) attemptFill(fillOrder Order) (Order, error) {
 	if fillOrder.Side() == BUY {
-		// handle buy order
-		sellOrders, err := o.Sell.Orders(fillOrder.Price())
-		if err != nil {
-			return nil, fmt.Errorf("failed to list orders: %+v", err)
-		}
-
-		first := sellOrders[0]
-		log.Printf("first priority sellOrder: %+v", first)
-
-		return fillOrder, fmt.Errorf("failed to fill: %v", fillOrder)
+		return fillOrder, fmt.Errorf("NOT IMPL: %v", fillOrder)
 	} else {
 		// handle sell order
-		buyOrders, err := o.Buy.Orders(fillOrder.Price())
-		if err != nil {
-			return nil, fmt.Errorf("failed to list orders: %+v", err)
-		}
-
-		first := buyOrders[0]
-		log.Printf("first priority buyOrder: %+v", first)
-
-		return fillOrder, fmt.Errorf("failed to fill: %v", fillOrder)
+		return fillOrder, fmt.Errorf("NOT IMPL: %v", fillOrder)
 	}
 }
 
@@ -222,32 +193,45 @@ func (o *Orderbook) attemptFill(fillOrder Order) (Order, error) {
 
 // ID returns the private id of the LimitOrder
 func (l *LimitOrder) ID() string {
+	l.Lock()
+	defer l.Unlock()
 	return l.id
 }
 
 // Price returns the private price of the LimitOrder as int64
 func (l *LimitOrder) Price() int64 {
+	l.Lock()
+	defer l.Unlock()
 	return l.price
 }
 
 // Side returns the type of order, either BUY or SELL.
 func (l *LimitOrder) Side() string {
+	l.Lock()
+	defer l.Unlock()
 	return l.side
 }
 
 // Open returns the amount of this order still open for purchase
 func (l *LimitOrder) Open() uint64 {
+	l.Lock()
+	defer l.Unlock()
 	return l.open - l.filled
 }
 
 // History returns the transaction receipts for this order.
 func (l *LimitOrder) History() []*Transaction {
+	l.Lock()
+	defer l.Unlock()
 	return l.Transactions
 }
 
 // Fill will add a Transaction to the tx list of an order or report
 // an error.
 func (l *LimitOrder) Fill(tx *Transaction) ([]*Transaction, error) {
+	l.Lock()
+	defer l.Unlock()
+
 	if l.Transactions == nil {
 		l.Transactions = make([]*Transaction, 0)
 	}
@@ -323,17 +307,16 @@ func (t *PriceNode) Insert(o Order) error {
 		t = &PriceNode{val: o.Price()}
 	}
 
+	t.Lock()
+
 	if t.val == o.Price() {
 		// when we find a price match for the Order's price,
 		// insert the Order into this node's Order list.
-		// lock because we're about to alter coure resource.
-		t.Lock()
-		defer t.Unlock()
-
 		if t.orders == nil {
 			t.orders = make([]Order, 0)
 		}
 		t.orders = append(t.orders, o)
+		t.Unlock()
 
 		return nil
 	}
@@ -343,12 +326,14 @@ func (t *PriceNode) Insert(o Order) error {
 			t.left = &PriceNode{val: o.Price()}
 			return t.left.Insert(o)
 		}
+		t.Unlock()
 		return t.left.Insert(o)
 	} else {
 		if t.right == nil {
 			t.right = &PriceNode{val: o.Price()}
 			return t.right.Insert(o)
 		}
+		t.Unlock()
 		return t.right.Insert(o)
 	}
 }
@@ -385,57 +370,45 @@ func (t *PriceNode) Find(price int64) (Order, error) {
 
 // Match will iterate through the tree based on the price of the
 // fillOrder and finds a bookOrder that matches its price.
+// * It holds a lock until _after_ the callback returns.
 func (t *PriceNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 	if t == nil {
 		cb(nil)
 		return
 	}
 
-	t.Lock()
-	defer t.Unlock()
-
 	if fillOrder.Price() == t.val {
+		// hold a lock until after the callback returns
+		t.Lock()
+		defer t.Unlock()
+
 		// callback with first order in the list
 		bookOrder := t.orders[0]
 		cb(bookOrder)
 		return
 	}
 
+	t.Lock()
+
 	if fillOrder.Price() > t.val {
 		if t.right != nil {
+			t.Unlock()
 			t.right.Match(fillOrder, cb)
 			return
+		} else {
+			cb(nil)
+			t.Unlock()
 		}
-	}
-
-	if fillOrder.Price() < t.val {
+	} else {
 		if t.left != nil {
+			t.Unlock()
 			t.left.Match(fillOrder, cb)
 			return
+		} else {
+			cb(nil)
+			t.Unlock()
 		}
 	}
-
-	log.Fatalf("error: fillOrder should not get here: %+v", fillOrder)
-}
-
-// Pull is used by the Orderbook to pull an order at a given price.
-// * It is an atomic function and handles its own locking.
-// * It will find and remove an Order at a given Price or return an error
-func (t *PriceNode) Pull(price int64) (Order, error) {
-	// NB: The disparity between having to find and remove suggests that
-	// we could refactor this into a single function called Remove here.
-	// NB: Locking here creates a deadlock. Another code smell.
-	// We should refactor pull to atomically wrap the find and remove logic.
-	pulled, err := t.Find(price)
-	if err != nil {
-		return nil, fmt.Errorf("failed to pull: %w", err)
-	}
-	_, err = t.RemoveByID(pulled)
-	if err != nil {
-		return nil, fmt.Errorf("failed to remove from books: %w", err)
-	}
-	log.Printf("pulling order: %+v", pulled)
-	return pulled, nil
 }
 
 // Orders returns the list of Orders for a given price.
@@ -443,9 +416,6 @@ func (t *PriceNode) Orders(price int64) ([]Order, error) {
 	if t == nil {
 		return nil, fmt.Errorf("order tree is nil")
 	}
-
-	t.Lock()
-	defer t.Unlock()
 
 	if t.val == price {
 		return t.orders, nil

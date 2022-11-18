@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
+	"github.com/matryer/is"
 )
 
 // number of workers that will process orders
@@ -36,6 +37,7 @@ var testOrders = []Order{
 }
 
 func TestWorker(t *testing.T) {
+	is := is.New(t)
 	// Create our input and output channels.
 	pending, complete := make(chan Order), make(chan Order)
 
@@ -74,9 +76,13 @@ func TestWorker(t *testing.T) {
 		for c := range complete {
 			wg.Done()
 			log.Printf("order %s completed", c.ID())
+			is.Equal(c.Open(), uint64(0))
 		}
 	}()
 	wg.Wait()
+	for os := range status {
+		t.Logf("received order status update: %+v", os)
+	}
 }
 
 func TestOrderbookPush(t *testing.T) {
