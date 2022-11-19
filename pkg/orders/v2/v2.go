@@ -64,37 +64,6 @@ type Order interface {
 	History() []*Transaction
 }
 
-//////////////////////////////
-// LIMIT ORDER IMPLEMENTATION
-//////////////////////////////
-
-// LimitOrder fulfills the Order interface. FillStrategy implements a limit order
-// fill algorithm.
-type LimitOrder struct {
-	sync.Mutex
-
-	// Holds a string identifier to the Owner of the Order.
-	Owner string
-	// Holds any errors that occurred during processing
-	Err error
-	// transactions is a list of actions on this order
-	Transactions []*Transaction
-
-	//// Private fields
-	// id is a unique identifier
-	id string
-	// price of the order in the asset's smallest atomic unit.
-	// E.G. cents for USD, gwei for ETH, etc...
-	price int64
-	// Returns BUY if its a buy order, SELL if its a sell order.
-	side string
-	// open represents the number of items at the price being ordered
-	open uint64
-	// filled is a quantity of this order that has been filled,
-	// aka purchased at a specific price
-	filled uint64
-}
-
 // Transaction
 type Transaction struct {
 	AccountID string // who filled the order
@@ -117,7 +86,6 @@ func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbo
 	for o := range in {
 		// attempt to fill the order
 		go func(order Order) {
-			log.Printf("received order %+v", order)
 			if err := orderbook.Push(order); err != nil {
 				status <- OrderState{
 					Order:  order,
@@ -180,22 +148,96 @@ func (o *Orderbook) Push(order Order) error {
 // Fill is meant to be called concurrently and works on the Orderbook.
 func (o *Orderbook) attemptFill(fillOrder Order) (Order, error) {
 	if fillOrder.Side() == BUY {
-		return fillOrder, fmt.Errorf("NOT IMPL: %v", fillOrder)
+		sellOrders, err := o.Sell.Orders(fillOrder.Price())
+		if err != nil {
+			return nil, err
+		}
+		if len(sellOrders) == 0 {
+			return nil, fmt.Errorf("ErrNoOrders")
+		}
+		// fmt.Printf("sellOrders: %v\n", sellOrders)
+
+		seller := sellOrders[0]
+		availableForPurchase := seller.Open()
+		needed := fillOrder.Open()
+
+		if needed >= availableForPurchase {
+			// take all available for purchase
+			txlist, txerr := fillOrder.Fill(&Transaction{
+				AccountID: seller.OwnerID(),
+				Quantity:  availableForPurchase,
+				Price:     uint64(seller.Price()),
+				Total:     uint64(seller.Price()) * availableForPurchase,
+			})
+			if txerr != nil {
+				log.Printf("FAILED TO TRANSACT: %+v", err)
+			}
+			fmt.Printf("### txlist: %v\n", txlist)
+		} else {
+			// partial fill - needed < availableForPurchase
+			txlist, txerr := fillOrder.Fill(&Transaction{
+				AccountID: seller.OwnerID(),
+				Quantity:  needed,
+				Price:     uint64(seller.Price()),
+				Total:     uint64(seller.Price()) * needed,
+			})
+			if txerr != nil {
+				log.Printf("FAILED TO TRANSACT: %+v", err)
+			}
+			fmt.Printf("successfully transacted: txlist: %v\n", txlist)
+		}
+
+		return fillOrder, nil
 	} else {
 		// handle sell order
-		return fillOrder, fmt.Errorf("NOT IMPL: %v", fillOrder)
+		buyOrders, err := o.Buy.Orders(fillOrder.Price())
+		if err != nil {
+			return nil, err
+		}
+		if len(buyOrders) == 0 {
+			return nil, fmt.Errorf("ErrNoOrders")
+		}
+		// fmt.Printf("buyOrders: %v\n", buyOrders)
+		return fillOrder, nil
 	}
 }
 
-////////////////
-// LimitOrder //
-////////////////
+//////////////////////////////
+// LIMIT ORDER IMPLEMENTATION
+//////////////////////////////
+
+// LimitOrder fulfills the Order interface. FillStrategy implements a limit order
+// fill algorithm.
+type LimitOrder struct {
+	sync.Mutex
+	// id is a unique identifier
+	id string
+	// Holds a string identifier to the owner of the Order.
+	owner string
+	// price of the order in the asset's smallest atomic unit.
+	// E.G. cents for USD, gwei for ETH, etc...
+	price int64
+	// Returns BUY if its a buy order, SELL if its a sell order.
+	side string
+	// open represents the number of items at the price being ordered
+	open uint64
+	// filled is a quantity of this order that has been filled,
+	// aka purchased at a specific price
+	filled uint64
+	// txs is a list of actions on this order
+	txs []*Transaction
+}
 
 // ID returns the private id of the LimitOrder
 func (l *LimitOrder) ID() string {
 	l.Lock()
 	defer l.Unlock()
 	return l.id
+}
+
+// Returns the owner ID of this order. It maps to the account ID.
+func (l *LimitOrder) OwnerID() string {
+	return l.owner
 }
 
 // Price returns the private price of the LimitOrder as int64
@@ -223,7 +265,7 @@ func (l *LimitOrder) Open() uint64 {
 func (l *LimitOrder) History() []*Transaction {
 	l.Lock()
 	defer l.Unlock()
-	return l.Transactions
+	return l.txs
 }
 
 // Fill will add a Transaction to the tx list of an order or report
@@ -232,254 +274,29 @@ func (l *LimitOrder) Fill(tx *Transaction) ([]*Transaction, error) {
 	l.Lock()
 	defer l.Unlock()
 
-	if l.Transactions == nil {
-		l.Transactions = make([]*Transaction, 0)
+	if l.txs == nil {
+		l.txs = make([]*Transaction, 0)
 	}
 	// NB: ensure we call the method instead of accesssing the field directly.
 	// This is probably a code smell 👃
 	if tx.Quantity > l.Open() {
 		return nil, fmt.Errorf("cannot purchase more than are available: %v", tx)
 	}
-	if tx.Price < uint64(l.price) {
-		return nil, fmt.Errorf("cannot pay less than limit order price")
-	}
 
-	// NB: We probably want to only ever increase the filled quantity or maybe
-	// move to a model where we entirely calculate open and filled by
-	// analyzing the transaction list instead of maintaining them as fields
-	// on the LimitOrder.
-	l.filled = l.filled + tx.Quantity
-	l.Transactions = append(l.Transactions, tx)
-
-	return l.Transactions, nil
-}
-
-// Returns the owner ID of this order. It maps to the account ID.
-func (l *LimitOrder) OwnerID() string {
-	return l.Owner
-}
-
-///////////////////////////
-// B-TREE IMPLEMENTATION //
-///////////////////////////
-
-// PriceNode represents a tree of nodes that maintain lists of Orders at that price.
-// * Each PriceNode maintains an ordered list of Orders that share the same price.
-// * This tree is a simple binary tree, where left nodes are lesser prices and right
-// nodes are greater in price than the current node.
-type PriceNode struct {
-	sync.Mutex
-
-	val    int64 // to represent price
-	orders []Order
-	right  *PriceNode
-	left   *PriceNode
-}
-
-// List grabs a lock on the whole tree and reads all of the orders from it.
-func (t *PriceNode) List() ([]Order, error) {
-	t.Lock()
-	defer t.Unlock()
-
-	orders := []Order{}
-	stack := []*PriceNode{}
-	var current *PriceNode
-	for t != nil || len(stack) > 0 {
-		if current != nil {
-			stack = append(stack, t)
-			current = current.left
-		} else {
-			current = stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			fmt.Printf("visited price: %d", t.val)
-			orders = append(orders, t.orders...)
-			current = current.right
-		}
-	}
-	return orders, nil
-}
-
-// Insert will add an Order to the Tree. It traverses until it finds the right price
-// or where the price should exist and creates a price node if it doesn't exist, then
-// adds the Order to that price node.
-func (t *PriceNode) Insert(o Order) error {
-	if t == nil {
-		t = &PriceNode{val: o.Price()}
-	}
-
-	t.Lock()
-
-	if t.val == o.Price() {
-		// when we find a price match for the Order's price,
-		// insert the Order into this node's Order list.
-		if t.orders == nil {
-			t.orders = make([]Order, 0)
-		}
-		t.orders = append(t.orders, o)
-		t.Unlock()
-
-		return nil
-	}
-
-	if o.Price() < t.val {
-		if t.left == nil {
-			t.left = &PriceNode{val: o.Price()}
-			return t.left.Insert(o)
-		}
-		t.Unlock()
-		return t.left.Insert(o)
-	} else {
-		if t.right == nil {
-			t.right = &PriceNode{val: o.Price()}
-			return t.right.Insert(o)
-		}
-		t.Unlock()
-		return t.right.Insert(o)
-	}
-}
-
-// Find returns the highest priority Order for a given price point.
-// * If it can't find an order at that exact price, it will search for
-// a cheaper order if one exists.
-func (t *PriceNode) Find(price int64) (Order, error) {
-	if t == nil {
-		return nil, fmt.Errorf("err no exist")
-	}
-
-	if price == t.val {
-		if len(t.orders) > 0 {
-			return t.orders[0], nil
-		}
-		return nil, fmt.Errorf("no orders at this price")
-	}
-
-	if price > t.val {
-		if t.right != nil {
-			return t.right.Find(price)
-		} else {
-			return nil, fmt.Errorf("no orders at this price")
+	// ensure price is valid. We are okay with paying less if we're buying, and okay
+	// taking more if we're selling.
+	if l.side == BUY {
+		if tx.Price > uint64(l.price) {
+			return nil, fmt.Errorf("cannot pay less than limit order price")
 		}
 	} else {
-		if t.left != nil {
-			return t.left.Find(price)
-		} else {
-			return nil, fmt.Errorf("no orders at this price")
-		}
-	}
-}
-
-// Match will iterate through the tree based on the price of the
-// fillOrder and finds a bookOrder that matches its price.
-// * It holds a lock until _after_ the callback returns.
-func (t *PriceNode) Match(fillOrder Order, cb func(bookOrder Order)) {
-	if t == nil {
-		cb(nil)
-		return
-	}
-
-	if fillOrder.Price() == t.val {
-		// hold a lock until after the callback returns
-		t.Lock()
-		defer t.Unlock()
-
-		// callback with first order in the list
-		bookOrder := t.orders[0]
-		cb(bookOrder)
-		return
-	}
-
-	t.Lock()
-
-	if fillOrder.Price() > t.val {
-		if t.right != nil {
-			t.Unlock()
-			t.right.Match(fillOrder, cb)
-			return
-		} else {
-			cb(nil)
-			t.Unlock()
-		}
-	} else {
-		if t.left != nil {
-			t.Unlock()
-			t.left.Match(fillOrder, cb)
-			return
-		} else {
-			cb(nil)
-			t.Unlock()
-		}
-	}
-}
-
-// Orders returns the list of Orders for a given price.
-func (t *PriceNode) Orders(price int64) ([]Order, error) {
-	if t == nil {
-		return nil, fmt.Errorf("order tree is nil")
-	}
-
-	if t.val == price {
-		return t.orders, nil
-	}
-
-	if price > t.val {
-		if t.right != nil {
-			return t.right.Orders(price)
+		if tx.Price < uint64(l.price) {
+			return nil, fmt.Errorf("cannot pay less than limit order price")
 		}
 	}
 
-	if price < t.val {
-		if t.left != nil {
-			return t.left.Orders(price)
-		}
-	}
+	l.filled += tx.Quantity
+	l.txs = append(l.txs, tx)
 
-	return nil, fmt.Errorf("ErrNoOrders")
-}
-
-// Remove removes an order from the list of orders at a
-// given price in our tree. It does not currently rebalance the tree.
-// TODO: make this rebalance the tree at some threshold.
-func (t *PriceNode) RemoveByID(order Order) (Order, error) {
-	if t == nil {
-		return nil, fmt.Errorf("order tree is nil")
-	}
-	if order.Price() == t.val {
-		for i, ord := range t.orders {
-			if ord.ID() == order.ID() {
-				t.Lock()
-				defer t.Unlock()
-
-				t.orders = removeV2(t.orders, i)
-				return ord, nil
-			}
-		}
-		return nil, fmt.Errorf("ErrNoExist")
-	}
-	if order.Price() > t.val {
-		if t.right != nil {
-			return t.right.RemoveByID(order)
-		}
-		return nil, fmt.Errorf("ErrNoExist")
-	} else {
-		if t.left != nil {
-			return t.left.RemoveByID(order)
-		}
-		return nil, fmt.Errorf("ErrNoExist")
-	}
-}
-
-//Print prints the elements in left-current-right order.
-func (t *PriceNode) Print() {
-	if t == nil {
-		return
-	}
-	t.left.Print()
-	fmt.Printf("%+v\n", t.val)
-	t.right.Print()
-}
-
-// remove removes the element in s at index i
-func removeV2(s []Order, i int) []Order {
-	s[i] = s[len(s)-1]
-	return s[:len(s)-1]
+	return l.txs, nil
 }
