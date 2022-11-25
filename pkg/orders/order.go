@@ -10,6 +10,7 @@ import (
 // Order defines the interface for an order in our system.
 type Order interface {
 	ID() string
+	Side() string
 	Owner() accounts.Account
 	AssetInfo() AssetInfo
 	Price() float64  // returns the price of the amount filled.
@@ -21,8 +22,7 @@ type Order interface {
 
 // AssetInfo defines the underlying and name for an asset.
 type AssetInfo struct {
-	Underlying string
-	Name       string
+	Name string
 }
 
 // MarketOrder fulfills Order and is a record of a single order
@@ -36,12 +36,18 @@ type MarketOrder struct {
 	PlacedAt       time.Time
 	MarketPrice    float64
 
+	side string
 	done chan Order
 }
 
 // ID returns the MarketOrder's UUID
 func (mo *MarketOrder) ID() string {
 	return mo.UUID
+}
+
+// Side returns buy or sell side
+func (mo *MarketOrder) Side() string {
+	return mo.side
 }
 
 // Filled returns the number of units for the order that have been filled.

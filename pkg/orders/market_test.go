@@ -53,9 +53,9 @@ func Test_market_Fill(t *testing.T) {
 					orders: []Order{
 						&MarketOrder{
 							Asset: AssetInfo{
-								Name:       "ETH",
-								Underlying: "USD",
+								Name: "ETH",
 							},
+							side: "BUY",
 							UserAccount: &accounts.UserAccount{
 								Email: "buyer@test.com",
 							},
@@ -73,9 +73,9 @@ func Test_market_Fill(t *testing.T) {
 					orders: []Order{
 						&MarketOrder{
 							Asset: AssetInfo{
-								Name:       "ETH",
-								Underlying: "USD",
+								Name: "ETH",
 							},
+							side: "SELL",
 							UserAccount: &accounts.UserAccount{
 								Email: "seller@test.com",
 							},
@@ -89,8 +89,7 @@ func Test_market_Fill(t *testing.T) {
 					},
 				},
 				asset: &AssetInfo{
-					Name:       "ETH",
-					Underlying: "USD",
+					Name: "ETH",
 				},
 			},
 			args: args{
@@ -100,10 +99,10 @@ func Test_market_Fill(t *testing.T) {
 						Email: "buyer@test.com",
 					},
 					Asset: AssetInfo{
-						Name:       "ETH",
-						Underlying: "USD",
+						Name: "ETH",
 					},
 					UUID:           "0xBUY",
+					side:           "BUY",
 					OpenQuantity:   1,
 					FilledQuantity: 0,
 					PlacedAt:       time.Now(),
@@ -126,8 +125,7 @@ func Test_market_Fill(t *testing.T) {
 			name: "should partially fill an order",
 			fields: fields{
 				asset: &AssetInfo{
-					Name:       "ETH",
-					Underlying: "USD",
+					Name: "ETH",
 				},
 				Accounts: &accounts.InMemoryManager{
 					Accounts: map[string]*accounts.UserAccount{
@@ -146,13 +144,13 @@ func Test_market_Fill(t *testing.T) {
 					orders: []Order{
 						&MarketOrder{
 							Asset: AssetInfo{
-								Name:       "ETH",
-								Underlying: "USD",
+								Name: "ETH",
 							},
 							UserAccount: &accounts.UserAccount{
 								Email: "seller@test.com",
 							},
 							UUID:           "0xSELL",
+							side:           "SELL",
 							OpenQuantity:   5,
 							FilledQuantity: 0,
 							PlacedAt:       time.Time{},
@@ -166,8 +164,7 @@ func Test_market_Fill(t *testing.T) {
 					orders: []Order{
 						&MarketOrder{
 							Asset: AssetInfo{
-								Name:       "ETH",
-								Underlying: "USD",
+								Name: "ETH",
 							},
 							UserAccount: &accounts.UserAccount{
 								Email: "buyer@test.com",
@@ -177,6 +174,7 @@ func Test_market_Fill(t *testing.T) {
 							FilledQuantity: 0,
 							PlacedAt:       time.Time{},
 							MarketPrice:    50.0,
+							side:           "BUY",
 							done:           make(chan Order, 1),
 						},
 					},
@@ -189,14 +187,14 @@ func Test_market_Fill(t *testing.T) {
 						Email: "buyer@test.com",
 					},
 					Asset: AssetInfo{
-						Name:       "ETH",
-						Underlying: "USD",
+						Name: "ETH",
 					},
 					UUID:           "0xBUY",
 					OpenQuantity:   2,
 					FilledQuantity: 0,
 					PlacedAt:       time.Now(),
 					MarketPrice:    50,
+					side:           "BUY",
 					done:           make(chan Order),
 				},
 			},
@@ -218,7 +216,6 @@ func Test_market_Fill(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fm := &market{
-				asset:    tt.fields.asset,
 				Accounts: tt.fields.Accounts,
 				BuySide:  tt.fields.BuySide,
 				SellSide: tt.fields.SellSide,

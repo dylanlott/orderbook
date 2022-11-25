@@ -32,8 +32,6 @@ type market struct {
 	BuySide *TreeNode
 	// SellSide is for order selling the Asset at the Quote
 	SellSide *TreeNode
-	// Keeps a record of this market's asset information
-	asset *AssetInfo
 }
 
 func (fm *market) Fill(ctx context.Context, fillOrder Order) {
@@ -58,7 +56,7 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 func (fm *market) attemptFill(fillOrder Order) error {
 	var fillErr error
 
-	if fillOrder.AssetInfo().Name == fm.asset.Name {
+	if fillOrder.Side() == "BUY" {
 		log.Printf("detected buy side order: %+v", fillOrder)
 
 		fm.SellSide.Match(fillOrder, func(bookOrder Order) {
@@ -191,9 +189,7 @@ func (fm *market) Place(order Order) (Order, error) {
 	fm.Mutex.Lock()
 	defer fm.Mutex.Unlock()
 
-	// TODO: revisit this check; not sure this makes sense in a situation
-	// where we already split the buy and sell orders
-	if order.AssetInfo().Name == fm.asset.Name {
+	if order.Side() == "BUY" {
 		// insert order buy side
 		log.Printf("### Placing order BUY side: %+v", order)
 		err := fm.BuySide.Insert(order)
