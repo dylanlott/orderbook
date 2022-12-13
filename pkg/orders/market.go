@@ -137,33 +137,7 @@ func (fm *market) attemptFill(fillOrder Order) error {
 
 			// should result in fillOrder being partially filled and bookOrder being totally filled.
 			if fillOrder.Quantity() > bookOrder.Quantity() {
-				left := fillOrder.Quantity() - bookOrder.Quantity()
-				taken := bookOrder.Quantity()
-				wanted := float64(bookOrder.Quantity()) * bookOrder.Price()
-
-				total := float64(wanted) * bookOrder.Price()
-				_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
-					return
-				}
-
-				updatedFill, err := fillOrder.Update(left, taken)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
-					return
-				}
-
-				updatedBook, err := bookOrder.Update(0, taken)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to update book order: %+v", err)
-					return
-				}
-				if err := fm.SellSide.RemoveFromPriceList(updatedBook); err != nil {
-					fillErr = fmt.Errorf("failed to remove book order %s form sell side: %+v", bookOrder.ID(), err)
-				}
-
-				log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
+				fillErr = fm.handleWantMore(fillOrder, bookOrder)
 			}
 
 		})
@@ -177,6 +151,38 @@ func (fm *market) attemptFill(fillOrder Order) error {
 	}
 
 	return fillErr
+}
+
+// handleWantMore handles the case where the fill order wants more
+// than is available in the bookOrder
+// This function should be made atomic but is not currently atomic.
+func (fm *market) handleWantMore(fill, book Order) error {
+	left := fill.Quantity() - book.Quantity()
+	taken := book.Quantity()
+	wanted := float64(book.Quantity()) * book.Price()
+
+	total := float64(wanted) * book.Price()
+	_, err := fm.Accounts.Tx(fill.Owner().UserID(), book.Owner().UserID(), total)
+	if err != nil {
+		return fmt.Errorf("failed to update fill order: %+v", err)
+	}
+
+	updatedFill, err := fill.Update(left, taken)
+	if err != nil {
+		return fmt.Errorf("failed to update fill order: %+v", err)
+	}
+
+	updatedBook, err := book.Update(0, taken)
+	if err != nil {
+		return fmt.Errorf("failed to update book order: %+v", err)
+	}
+
+	if err := fm.SellSide.RemoveFromPriceList(updatedBook); err != nil {
+		return fmt.Errorf("failed to remove book order %s form sell side: %+v", book.ID(), err)
+	}
+
+	log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
+	return nil
 }
 
 // Place creates a new Order and adds it into the Order list.
