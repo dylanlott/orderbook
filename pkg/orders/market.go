@@ -103,43 +103,13 @@ func (fm *market) attemptFill(fillOrder Order) error {
 
 			// should result in total fill for both since we have equal quantities
 			if fillOrder.Quantity() == bookOrder.Quantity() {
-				wanted := fillOrder.Quantity()
-				available := bookOrder.Quantity()
-
-				// TODO: upgrade form float64 to integer-only handling
-				total := float64(wanted) * bookOrder.Price()
-				_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
-					return
-				}
-
-				updatedFill, err := fillOrder.Update(0, available)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
-					return
-				}
-				if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
-					fillErr = fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
-					return
-				}
-
-				updatedBook, err := bookOrder.Update(0, available)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
-					return
-				}
-				if err := fm.SellSide.RemoveFromPriceList(updatedBook); err != nil {
-					fillErr = fmt.Errorf("failed to remove book order %s form sell side: %+v", bookOrder.ID(), err)
-				}
-				log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
+				fillErr = fm.handleEqualWant(fillOrder, bookOrder)
 			}
 
 			// should result in fillOrder being partially filled and bookOrder being totally filled.
 			if fillOrder.Quantity() > bookOrder.Quantity() {
 				fillErr = fm.handleWantMore(fillOrder, bookOrder)
 			}
-
 		})
 	} else {
 		// handle sell side
@@ -151,6 +121,37 @@ func (fm *market) attemptFill(fillOrder Order) error {
 	}
 
 	return fillErr
+}
+
+// handleEqualWant ...
+func (fm *market) handleEqualWant(fillOrder, bookOrder Order) error {
+	wanted := fillOrder.Quantity()
+	available := bookOrder.Quantity()
+
+	// TODO: upgrade form float64 to integer-only handling
+	total := float64(wanted) * bookOrder.Price()
+	_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
+	if err != nil {
+		return fmt.Errorf("failed to update fill order: %+v", err)
+	}
+
+	updatedFill, err := fillOrder.Update(0, available)
+	if err != nil {
+		return fmt.Errorf("failed to update fill order: %+v", err)
+	}
+	if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
+		return fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
+	}
+
+	updatedBook, err := bookOrder.Update(0, available)
+	if err != nil {
+		return fmt.Errorf("failed to update fill order: %+v", err)
+	}
+	if err := fm.SellSide.RemoveFromPriceList(updatedBook); err != nil {
+		return fmt.Errorf("failed to remove book order %s form sell side: %+v", bookOrder.ID(), err)
+	}
+	log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
+	return nil
 }
 
 // handleWantMore handles the case where the fill order wants more
