@@ -64,41 +64,7 @@ func (fm *market) attemptFill(fillOrder Order) error {
 
 			// should result in fillOrder being completely filled, bookOrder partial fill
 			if fillOrder.Quantity() < bookOrder.Quantity() {
-				wanted := fillOrder.Quantity()
-				available := bookOrder.Quantity()
-				left := available - wanted
-
-				// TODO: upgrade from float64 to integer-only handling
-				total := float64(wanted) * bookOrder.Price()
-				_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to transfer balances: %+v", err)
-					return
-				}
-
-				// complete fill of fillOrder
-				updatedFill, err := fillOrder.Update(0, wanted)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
-					return
-				}
-
-				// remove the fillOrder since it is now considered filled
-				// NB: Hmmm, this seems to clash with how our Orders like to handle completion themselves.
-				// Should we consider moving this elsewhere?
-				if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
-					fillErr = fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
-					return
-				}
-
-				// and bookOrder being partially filled.
-				updatedBook, err := bookOrder.Update(left, wanted)
-				if err != nil {
-					fillErr = fmt.Errorf("failed to update fill order: %+v", err)
-					return
-				}
-
-				log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
+				fillErr = fm.handleWantLess(fillOrder, bookOrder)
 			}
 
 			// should result in total fill for both since we have equal quantities
@@ -121,6 +87,41 @@ func (fm *market) attemptFill(fillOrder Order) error {
 	}
 
 	return fillErr
+}
+
+func (fm *market) handleWantLess(fillOrder, bookOrder Order) error {
+	wanted := fillOrder.Quantity()
+	available := bookOrder.Quantity()
+	left := available - wanted
+
+	// TODO: upgrade from float64 to integer-only handling
+	total := float64(wanted) * bookOrder.Price()
+	_, err := fm.Accounts.Tx(fillOrder.Owner().UserID(), bookOrder.Owner().UserID(), total)
+	if err != nil {
+		return fmt.Errorf("failed to transfer balances: %+v", err)
+	}
+
+	// complete fill of fillOrder
+	updatedFill, err := fillOrder.Update(0, wanted)
+	if err != nil {
+		return fmt.Errorf("failed to update fill order: %+v", err)
+	}
+
+	// remove the fillOrder since it is now considered filled
+	// NB: Hmmm, this seems to clash with how our Orders like to handle completion themselves.
+	// Should we consider moving this elsewhere?
+	if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
+		return fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
+	}
+
+	// and bookOrder being partially filled.
+	updatedBook, err := bookOrder.Update(left, wanted)
+	if err != nil {
+		return fmt.Errorf("failed to update fill order: %+v", err)
+	}
+
+	log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
+	return nil
 }
 
 // handleEqualWant ...
