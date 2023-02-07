@@ -7,12 +7,12 @@ import (
 )
 
 func TestDone(t *testing.T) {
+	is := is.New(t)
 	t.Run("should send on done when filled", func(t *testing.T) {
-		is := is.New(t)
 		o := &MarketOrder{
 			OpenQuantity:   1,
 			FilledQuantity: 0,
-			done:           make(chan Order),
+			done:           make(chan Order, 1),
 		}
 		go func() {
 			got := <-o.Done()

@@ -9,6 +9,8 @@ import (
 	"github.com/dylanlott/orderbook/pkg/accounts"
 )
 
+// TODO: add a leveled logger
+
 // Market defines the most outer API for our books.
 type Market interface {
 	Name() string
@@ -17,13 +19,14 @@ type Market interface {
 	Cancel(orderID string) error
 }
 
-// Filler defines an extensible function for filling orders.
-// It is called as a goroutine.
+// Filler is concurrently called passing the order and a context
+// and is meant to handle the order from start to finish.
 type Filler interface {
 	Fill(ctx context.Context, o Order)
 }
 
 // market manages a set of Orders.
+// It fulfills the Filler and Market interfaces.
 type market struct {
 	sync.Mutex
 	// Accounts maintains a reference to account balances
@@ -34,10 +37,11 @@ type market struct {
 	SellSide *TreeNode
 }
 
+// Fill implements the filler function for *market. It repeatedly calls
+// attemptFill on the Order until completion or cancellation.
 func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 	stopper := 0
 	for fillOrder.Quantity() != 0 && stopper < 100 {
-		log.Printf("fill attempt # %d", stopper)
 		err := fm.attemptFill(fillOrder)
 		if err != nil {
 			log.Printf("FillErr: failed to fill order: %+v", err)
@@ -51,17 +55,18 @@ func (fm *market) Fill(ctx context.Context, fillOrder Order) {
 // attemptFill attempts to fill an order as a Limit Fill order.
 // * It removes the market order from the orderbook if it fully fills
 // the order.
-// * TODO: Add rollback functionality. An order could currently transfer a balance and then
+// * TODO: Add rollback or atomic functionality.
+// An order could currently transfer a balance and then
 // fail to update the order totals, resulting in mishandled money.
 func (fm *market) attemptFill(fillOrder Order) error {
 	var fillErr error
 
 	if fillOrder.Side() == "BUY" {
-		log.Printf("detected buy side order: %+v", fillOrder)
+
+		fm.Lock()
+		defer fm.Unlock()
 
 		fm.SellSide.Match(fillOrder, func(bookOrder Order) {
-			log.Printf("matched buy order to sell order: %+v", bookOrder)
-
 			// should result in fillOrder being completely filled, bookOrder partial fill
 			if fillOrder.Quantity() < bookOrder.Quantity() {
 				fillErr = fm.handleWantLess(fillOrder, bookOrder)
@@ -79,7 +84,6 @@ func (fm *market) attemptFill(fillOrder Order) error {
 		})
 	} else {
 		// handle sell side
-		log.Printf("detected sell side order: %+v", fillOrder)
 		fm.BuySide.Match(fillOrder, func(bookOrder Order) {
 			log.Printf("matched sell order to buy order: %+v", bookOrder)
 		})
@@ -89,6 +93,7 @@ func (fm *market) attemptFill(fillOrder Order) error {
 	return fillErr
 }
 
+// handleWantLess ...
 func (fm *market) handleWantLess(fillOrder, bookOrder Order) error {
 	wanted := fillOrder.Quantity()
 	available := bookOrder.Quantity()
@@ -108,8 +113,6 @@ func (fm *market) handleWantLess(fillOrder, bookOrder Order) error {
 	}
 
 	// remove the fillOrder since it is now considered filled
-	// NB: Hmmm, this seems to clash with how our Orders like to handle completion themselves.
-	// Should we consider moving this elsewhere?
 	if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
 		return fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
 	}
@@ -140,17 +143,18 @@ func (fm *market) handleEqualWant(fillOrder, bookOrder Order) error {
 	if err != nil {
 		return fmt.Errorf("failed to update fill order: %+v", err)
 	}
-	if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
-		return fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
-	}
-
 	updatedBook, err := bookOrder.Update(0, available)
 	if err != nil {
 		return fmt.Errorf("failed to update fill order: %+v", err)
 	}
+
 	if err := fm.SellSide.RemoveFromPriceList(updatedBook); err != nil {
 		return fmt.Errorf("failed to remove book order %s form sell side: %+v", bookOrder.ID(), err)
 	}
+	if err := fm.BuySide.RemoveFromPriceList(fillOrder); err != nil {
+		return fmt.Errorf("failed to remove order %s from buy side: %+v", fillOrder.ID(), err)
+	}
+
 	log.Printf("updated orders - fillOrder: %+v\nbookOrder: %+v", updatedFill, updatedBook)
 	return nil
 }
@@ -189,7 +193,7 @@ func (fm *market) handleWantMore(fill, book Order) error {
 
 // Place creates a new Order and adds it into the Order list.
 func (fm *market) Place(order Order) (Order, error) {
-	log.Printf("### Placing order: %+v", order)
+	log.Printf("order placed %+v", order)
 	if order.Owner() == nil || order.Owner().UserID() == "" {
 		return nil, fmt.Errorf("each order must have an associated account")
 	}
@@ -199,14 +203,12 @@ func (fm *market) Place(order Order) (Order, error) {
 
 	if order.Side() == "BUY" {
 		// insert order buy side
-		log.Printf("### Placing order BUY side: %+v", order)
 		err := fm.BuySide.Insert(order)
 		if err != nil {
 			panic(err)
 		}
 	} else {
 		// insert order sell side
-		log.Printf("### Placing order SELL side: %+v", order)
 		err := fm.SellSide.Insert(order)
 		if err != nil {
 			panic(err)

@@ -87,7 +87,7 @@ type LimitOrder struct {
 	filled uint64
 }
 
-// Transaction
+// Transaction the data for a trade.
 type Transaction struct {
 	AccountID string // who filled the order
 	Quantity  uint64 // The amount they filled it for
@@ -124,6 +124,8 @@ func Worker(in <-chan Order, out chan<- Order, status chan<- OrderState, orderbo
 	}
 }
 
+// Filler handles txs from the input channel and passes them to the orderbook with a
+// reference which returns their output on the out channel upon completion or cancellation.
 func Filler(in <-chan Order, out chan<- Order, book *Orderbook) {
 	// make this constantly walk the tree
 	for {
@@ -156,9 +158,8 @@ type Orderbook struct {
 func (o *Orderbook) Pull(price int64, side string) (Order, error) {
 	if side == BUY {
 		return o.Buy.Pull(price)
-	} else {
-		return o.Sell.Pull(price)
 	}
+	return o.Sell.Pull(price)
 }
 
 // Push inserst an order into the book and starts off the goroutine
@@ -170,14 +171,16 @@ func (o *Orderbook) Push(order Order) error {
 			return fmt.Errorf("failed to add order to the book: %w", err)
 		}
 		return nil
-	} else {
-		err := o.Sell.Insert(order)
-		if err != nil {
-			return fmt.Errorf("failed to add order to the book: %w", err)
-		}
-		// TODO: kick off order for filling
-		return nil
 	}
+
+	err := o.Sell.Insert(order)
+	if err != nil {
+		return fmt.Errorf("failed to add order to the book: %w", err)
+	}
+
+	// TODO: kick off order for filling
+
+	return nil
 }
 
 // Match will match a Buy to a Sell and attempts to charge the buyer.
@@ -318,7 +321,7 @@ func (l *LimitOrder) Fill(tx *Transaction) ([]*Transaction, error) {
 	return l.Transactions, nil
 }
 
-// Returns the owner ID of this order. It maps to the account ID.
+// OwnerID Returns the owner ID of this order. It maps to the account ID.
 func (l *LimitOrder) OwnerID() string {
 	return l.Owner
 }
@@ -375,30 +378,36 @@ func (t *PriceNode) Insert(o Order) error {
 		// when we find a price match for the Order's price,
 		// insert the Order into this node's Order list.
 		// lock because we're about to alter coure resource.
-		t.Lock()
-		defer t.Unlock()
 
+		t.Lock()
 		if t.orders == nil {
 			t.orders = make([]Order, 0)
 		}
 		t.orders = append(t.orders, o)
-
+		t.Unlock()
 		return nil
 	}
 
 	if o.Price() < t.val {
+		t.Lock()
 		if t.left == nil {
 			t.left = &PriceNode{val: o.Price()}
+			t.Unlock()
 			return t.left.Insert(o)
 		}
+		t.Unlock()
 		return t.left.Insert(o)
-	} else {
-		if t.right == nil {
-			t.right = &PriceNode{val: o.Price()}
-			return t.right.Insert(o)
-		}
+	}
+	// and PREVIOUS WRITE HERE
+	t.Lock()
+	if t.right == nil {
+		t.right = &PriceNode{val: o.Price()}
+		t.Unlock()
 		return t.right.Insert(o)
 	}
+
+	t.Unlock()
+	return t.right.Insert(o)
 }
 
 // Find returns the highest priority Order for a given price point.
@@ -419,16 +428,16 @@ func (t *PriceNode) Find(price int64) (Order, error) {
 	if price > t.val {
 		if t.right != nil {
 			return t.right.Find(price)
-		} else {
-			return nil, fmt.Errorf("no orders at this price")
 		}
-	} else {
-		if t.left != nil {
-			return t.left.Find(price)
-		} else {
-			return nil, fmt.Errorf("no orders at this price")
-		}
+
+		return nil, fmt.Errorf("no orders at this price")
 	}
+
+	if t.left != nil {
+		return t.left.Find(price)
+	}
+
+	return nil, fmt.Errorf("no orders at this price")
 }
 
 // Match will iterate through the tree based on the price of the
@@ -508,36 +517,43 @@ func (t *PriceNode) Orders(price int64) ([]Order, error) {
 	return nil, fmt.Errorf("ErrNoOrders")
 }
 
-// Remove removes an order from the list of orders at a
+// RemoveByID removes an order from the list of orders at a
 // given price in our tree. It does not currently rebalance the tree.
 // TODO: make this rebalance the tree at some threshold.
 func (t *PriceNode) RemoveByID(order Order) (Order, error) {
 	if t == nil {
 		return nil, fmt.Errorf("order tree is nil")
 	}
+
+	t.Lock()
 	if order.Price() == t.val {
 		for i, ord := range t.orders {
 			if ord.ID() == order.ID() {
-				t.Lock()
-				defer t.Unlock()
-
 				t.orders = removeV2(t.orders, i)
+				t.Unlock()
 				return ord, nil
 			}
 		}
 		return nil, fmt.Errorf("ErrNoExist")
 	}
+
 	if order.Price() > t.val {
 		if t.right != nil {
+			t.Unlock()
 			return t.right.RemoveByID(order)
 		}
-		return nil, fmt.Errorf("ErrNoExist")
-	} else {
-		if t.left != nil {
-			return t.left.RemoveByID(order)
-		}
+
+		t.Unlock()
 		return nil, fmt.Errorf("ErrNoExist")
 	}
+
+	if t.left != nil {
+		t.Unlock()
+		return t.left.RemoveByID(order)
+	}
+
+	t.Unlock()
+	return nil, fmt.Errorf("ErrNoExist")
 }
 
 //Print prints the elements in left-current-right order.
@@ -545,6 +561,11 @@ func (t *PriceNode) Print() {
 	if t == nil {
 		return
 	}
+
+	// WRITE HERE
+	t.Lock()
+	defer t.Unlock()
+
 	t.left.Print()
 	fmt.Printf("%+v\n", t.val)
 	t.right.Print()

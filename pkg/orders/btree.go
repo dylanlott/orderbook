@@ -2,6 +2,8 @@ package orders
 
 import (
 	"fmt"
+	"log"
+	"sync"
 )
 
 // TreeNode represents a tree of nodes that maintain lists of Orders at that price.
@@ -9,6 +11,8 @@ import (
 // * This tree is a simple binary tree, where left nodes are lesser prices and right
 // nodes are greater in price than the current node.
 type TreeNode struct {
+	sync.Mutex
+
 	val    float64 // to represent price
 	orders []Order
 	right  *TreeNode
@@ -19,6 +23,8 @@ type TreeNode struct {
 // or where the price should exist and creates a price node if it doesn't exist, then
 // adds the Order to that price node.
 func (t *TreeNode) Insert(o Order) error {
+	t.Lock()
+
 	if t == nil {
 		t = &TreeNode{val: o.Price()}
 	}
@@ -30,22 +36,27 @@ func (t *TreeNode) Insert(o Order) error {
 			t.orders = make([]Order, 0)
 		}
 		t.orders = append(t.orders, o)
+		t.Unlock()
 		return nil
 	}
 
 	if o.Price() < t.val {
 		if t.left == nil {
 			t.left = &TreeNode{val: o.Price()}
+			t.Unlock()
 			return t.left.Insert(o)
 		}
+		t.Unlock()
 		return t.left.Insert(o)
 	}
 
 	if o.Price() > t.val {
 		if t.right == nil {
 			t.right = &TreeNode{val: o.Price()}
+			t.Unlock()
 			return t.right.Insert(o)
 		}
+		t.Unlock()
 		return t.right.Insert(o)
 	}
 
@@ -60,10 +71,14 @@ func (t *TreeNode) Find(price float64) (Order, error) {
 		return nil, fmt.Errorf("err no exist")
 	}
 
+	t.Lock()
+
 	if price == t.val {
 		if len(t.orders) > 0 {
+			defer t.Unlock()
 			return t.orders[0], nil
 		}
+		defer t.Unlock()
 		return nil, fmt.Errorf("no orders at this price")
 	}
 
@@ -83,19 +98,24 @@ func (t *TreeNode) Find(price float64) (Order, error) {
 }
 
 // Match will iterate through the tree based on the price of the
-// fillOrder and finds a bookOrder that matches its price.
+// fillOrder and fijjnds a bookOrder that matches its price.
 func (t *TreeNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 	if t == nil {
 		cb(nil)
 		return
 	}
 
+	t.Lock()
+
 	if fillOrder.Price() == t.val {
 		// callback with first order in the list
 		bookOrder := t.orders[0]
 		cb(bookOrder)
+		t.Unlock()
 		return
 	}
+
+	t.Unlock()
 
 	if fillOrder.Price() > t.val {
 		if t.right != nil {
@@ -121,6 +141,9 @@ func (t *TreeNode) Orders(price float64) ([]Order, error) {
 	}
 
 	if t.val == price {
+		// READ AT
+		t.Lock()
+		defer t.Unlock()
 		return t.orders, nil
 	}
 
@@ -167,12 +190,20 @@ func (t *TreeNode) RemoveFromPriceList(order Order) error {
 		return fmt.Errorf("order tree is nil")
 	}
 
+	if order == nil {
+		log.Printf("Nil order detected")
+		return fmt.Errorf("ErrNilOrder")
+	}
+
 	if order.Price() == t.val {
 		for i, ord := range t.orders {
+			t.Lock()
 			if ord.ID() == order.ID() {
 				t.orders = remove(t.orders, i)
+				t.Unlock() // NB: make sure to unlock in both paths
 				return nil
 			}
+			t.Unlock()
 		}
 		return fmt.Errorf("ErrNoExist")
 	}
