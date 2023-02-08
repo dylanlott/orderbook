@@ -10,11 +10,11 @@ import (
 	"github.com/matryer/is"
 )
 
-// number of workers that will process orders
-var numWorkers = 2
+// // number of workers that will process orders
+// var numWorkers = 2
 
-// numFillers is the number of fill workers that is started.
-var numFillers = 2
+// // numFillers is the number of fill workers that is started.
+// var numFillers = 2
 
 var testOrders = []Order{
 	&LimitOrder{
