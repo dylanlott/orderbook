@@ -3,6 +3,7 @@ package v3
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -34,6 +35,7 @@ type OrderUpdate struct {
 
 // order holds the information that represents a single order in our system
 type order struct {
+	ID      string
 	ownerID uint64 // relates to the user ID of the Account
 	price   Price  // unit price of the order
 	side    bool   // true if buy, sell if false
@@ -43,9 +45,17 @@ type order struct {
 
 // orderbook holds the set of orders that are active. if an order is
 type orderbook struct {
+	sync.Mutex
+
 	buy  map[Price][]*order // TODO: make buy and sell use FIFO queue generics
 	sell map[Price][]*order
 }
+
+var (
+	statusCanceled string = "canceled"
+	statusPending  string = "pending"
+	statusFilled   string = "filled"
+)
 
 // Worker wraps an in and output channel around the orderbook.
 // * Updates are published on the status channel.
@@ -54,36 +64,35 @@ type orderbook struct {
 // viewed through the status updates.
 func Worker(in <-chan *order, out chan<- *order, status chan<- OrderUpdate, book *orderbook) {
 	for ord := range in {
-		go func(o *order) {
-			log.Printf("creating order %+v", o)
-			// push into our books
-			if err := book.push(ord); err != nil {
-				status <- OrderUpdate{
-					Order:  o,
-					Status: "errored",
-					Err:    err,
-				}
+		// push the order into our books
+		err := book.push(ord)
+		if err != nil {
+			// report on status if errored.
+			status <- OrderUpdate{
+				Order:  ord,
+				Status: statusCanceled,
+				Err:    err,
 			}
+		}
 
-			// go fill the order
-			go book.fill(o, out)
-		}(ord)
+		// go fill the order and push on out when it's' filled.
+		go book.fill(ord, out, status)
 	}
 }
 
-// StateMonitor returns a channel that emits order status updates.
-func StateMonitor() chan OrderUpdate {
+// StateMonitor returns a channel that emits order status updates at a given interval.
+func StateMonitor(interval time.Duration) chan OrderUpdate {
 	updates := make(chan OrderUpdate)
 	orderStatus := make(map[string]*order)
-	ticker := time.NewTicker(tickRate)
+	ticker := time.NewTicker(interval)
 
 	go func() {
 		for {
 			select {
-			case s := <-updates:
-				log.Printf("order state updated: %+v", s)
+			case orderUpdated := <-updates:
+				orderStatus[orderUpdated.Order.ID] = orderUpdated.Order
 			case <-ticker.C:
-				log.Printf("book: %+v", orderStatus)
+				log.Printf("status updates: %+v", orderStatus)
 			}
 		}
 	}()
@@ -94,6 +103,10 @@ func StateMonitor() chan OrderUpdate {
 // push inserts an order into the books and returns an error if order
 // is invalid or if an error occurred during push.
 func (o *orderbook) push(ord *order) error {
+	// push alters the state of orderbook so we lock it.
+	o.Lock()
+	defer o.Unlock()
+
 	// TODO: order validation here
 	if ord.side {
 		// handle buy side
@@ -114,8 +127,13 @@ func (o *orderbook) push(ord *order) error {
 	return nil
 }
 
-// pull matches an order at the given price and pulls the appropriate order
+// pull takes a given [price] and pulls a [quantity] of next-in-line orders from
+// the correct [side] of the books.
+// * it mutates the order book so it acquires a lock
 func (o *orderbook) pull(price Price, side bool) (*order, error) {
+	o.Lock()
+	defer o.Unlock()
+
 	if side {
 		// handle buy - pull lowest to find best price to buy.
 		return o.pullLowest(price, buyside)
@@ -125,43 +143,29 @@ func (o *orderbook) pull(price Price, side bool) (*order, error) {
 	return o.pullHighest(price, sellside)
 }
 
-// pullLowest pulls the cheapest price for the next order in the books
-// at or below the given price.
-func (o *orderbook) pullLowest(price Price, side bool) (*order, error) {
-	return nil, fmt.Errorf("not impl")
-}
-
-// pullHighest pulls the highest priced order in the books at or above
-// the given price.
-func (o *orderbook) pullHighest(price Price, side bool) (*order, error) {
-	return nil, fmt.Errorf("not impl")
-}
-
-// findLowest finds the lowest priced order on the given side but does not
-// pull it from the list. It returns the order's index, the order, and an error value It returns the order's index, the order, and an error value.
-func (o *orderbook) findLowest(price Price, side bool) (int64, *order, error) {
-	return 0, nil, fmt.Errorf("not impl")
-}
-
-// findHighest finds the highest priced order on the given side but does not
-// pull it from the list. It returns the order's index, the order, and an error value.
-func (o *orderbook) findHighest(price Price, side bool) (int64, *order, error) {
-	return 0, nil, fmt.Errorf("not impl")
-}
-
-// fill loops over the book and finds orders
-func (o *orderbook) fill(fillorder *order, out chan<- *order) {
+// fill loops over the book and finds orders.
+func (o *orderbook) fill(fillorder *order, out chan<- *order, status chan<- OrderUpdate) {
 	// TODO: loop on the order until it's filled
 	for {
-		if fillorder.filled < fillorder.open {
-			log.Printf("orderbook: attempting fill %+v", fillorder)
-			if filled, err := o.attemptFill(fillorder); err != nil {
-				log.Printf("error filling order: %v", err)
-				// TODO: publish order status update with error
-				time.Sleep(time.Second * 1)
+		if filled(fillorder) {
+			// attempt to fill the order
+			if _, err := o.attemptFill(fillorder); err != nil {
+
+				// if order is already filled, then log and break
+				if err == fmt.Errorf("ErrAlreadyFilled") {
+					status <- OrderUpdate{
+						Order:  fillorder,
+						Status: statusFilled,
+					}
+					break
+				}
+
+				status <- OrderUpdate{
+					Order:  fillorder,
+					Status: statusPending,
+					Err:    err,
+				}
 			} else {
-				log.Printf("filled: %+v", filled)
-				log.Printf("orderbook: filled %d of %d", fillorder.filled, fillorder.open)
 				if fillorder.filled == fillorder.open {
 					break
 				}
@@ -170,39 +174,91 @@ func (o *orderbook) fill(fillorder *order, out chan<- *order) {
 			break
 		}
 	}
+
+	// push the filled order into output channel
 	out <- fillorder
 }
 
 // attemptFill attempts to fill the given order and returns the amount it filled or an error.
+// this is the only function that actually mutates the book.
+// * this level of abstraction is useful because it's where we have determined and vetted
+// all of the preconditions and now know that we are for sure about to touch the books.
+// thus we can safely grab a lock and know it was necessary and efficient.
 func (o *orderbook) attemptFill(fillorder *order) (int64, error) {
+	o.Lock()
+	defer o.Unlock()
 
 	// TODO: calculate how much we want
 	wanted := fillorder.open - fillorder.filled
 
-	if wanted == 0 {
-		return 0, fmt.Errorf("ErrAlreadyFilled")
-	}
-
 	if fillorder.side {
 		// handle buy side
-		pulled, err := o.pullLowest(fillorder.price, buyside)
+		pulled, err := o.pullLowest(fillorder.price, fillorder.side)
 		if err != nil {
-			return 0, err
+
 		}
+
 		available := pulled.open - pulled.filled
 		if available > wanted {
+			// take first, always
+
 			// more are available than we want, fully fill the fillorder
+			fillorder.filled += wanted
 		}
 		if available < wanted {
 			// less are available than we wanted, take all available and return
 		}
+	} else {
+		_, err := o.pullHighest(fillorder.price, sellside)
+		if err != nil {
+			return 0, err
+		}
+
+		// handle sell side
+		return 0, fmt.Errorf("not impl")
 	}
 
-	_, err := o.pullHighest(fillorder.price, sellside)
-	if err != nil {
-		return 0, err
+}
+
+func (o *orderbook) pullLowest(price Price, side bool) (*order, error) {
+	if side {
+		// handle buy list
+		list, ok := o.buy[price]
+		if !ok {
+			if price == 0 {
+				return nil, fmt.Errorf("ErrNotFound")
+			}
+			// recursively search for next lowest price.
+			nextLowest := price - 1
+			return o.pullLowest(nextLowest, side)
+		}
+		if len(list) == 0 {
+			return nil, fmt.Errorf("ErrNotFound")
+		}
+
+		return list[0], nil
 	}
 
-	// handle sell side
-	return 0, fmt.Errorf("not impl")
+	// handle the sell list
+	list, ok := o.sell[price]
+	if !ok {
+		if price == 0 {
+			return nil, fmt.Errorf("ErrNotFound")
+		}
+		nextLowest := price - 1
+		return o.pullLowest(nextLowest, side)
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("ErrNotFound")
+	}
+
+	return list[0], nil
+}
+
+func (o *orderbook) pullHighest(price Price, side bool) (*order, error) {
+	return nil, fmt.Errorf("not impl")
+}
+
+func filled(fillorder *order) bool {
+	return fillorder.filled < fillorder.open
 }
