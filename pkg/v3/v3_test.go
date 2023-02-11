@@ -75,7 +75,7 @@ func TestWorker(t *testing.T) {
 		pending <- v
 	}
 
-	wg.Add(3)
+	wg.Add(2) // expect two of our tests cases to be filled
 
 	// gather completed orders
 	go func(wg *sync.WaitGroup) {
@@ -88,4 +88,6 @@ func TestWorker(t *testing.T) {
 
 	// wait for work to finish
 	wg.Wait()
+
+	is.Equal(len(o.buy), 2) // assert two unfilled
 }
