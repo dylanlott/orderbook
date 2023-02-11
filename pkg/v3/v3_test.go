@@ -11,25 +11,37 @@ import (
 var numWorkers = 2
 
 var testOrders []*order = []*order{
-	&order{
+	{
+		ID:      "foo",
 		ownerID: 111,
 		price:   10,
 		side:    buyside,
 		open:    10,
 		filled:  0,
 	},
-	&order{
+	{
+		ID:      "bar",
 		ownerID: 222,
 		price:   10,
 		side:    sellside,
-		open:    10,
+		open:    20,
 		filled:  0,
 	},
-	&order{
+	{
+
+		ID:      "buz",
 		ownerID: 333,
 		price:   10,
-		side:    sellside,
-		open:    10,
+		side:    buyside,
+		open:    20,
+		filled:  0,
+	},
+	{
+		ID:      "baz",
+		ownerID: 444,
+		price:   10,
+		side:    buyside,
+		open:    20,
 		filled:  0,
 	},
 }
@@ -60,27 +72,19 @@ func TestWorker(t *testing.T) {
 	// push test orders into queue and
 	wg := &sync.WaitGroup{}
 	for _, v := range testOrders {
-		wg.Add(1)
 		pending <- v
 	}
+
+	wg.Add(3)
 
 	// gather completed orders
 	go func(wg *sync.WaitGroup) {
 		for v := range complete {
-			t.Logf("completed order: %+v", v)
-			is.True(v.filled == v.open)
+			is.Equal(v.filled, v.open)
+			is.True(v.ID != "")
 			wg.Done()
 		}
 	}(wg)
-
-	go func(status chan OrderUpdate) {
-		for {
-			select {
-			case msg := <-status:
-				t.Logf("status update: %+v", msg)
-			}
-		}
-	}(status)
 
 	// wait for work to finish
 	wg.Wait()
