@@ -1,6 +1,7 @@
 package v3
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -60,15 +61,6 @@ type order struct {
 	filled  uint64 // filled quantity
 }
 
-// isFilled returns true if the order is filled.
-// it obtains a read-only lock.
-func (o *order) isFilled() bool {
-	o.RLock()
-	defer o.RUnlock()
-
-	return o.filled == o.open
-}
-
 // orderbook holds the set of orders that are active. if an order is
 type orderbook struct {
 	sync.Mutex
@@ -91,26 +83,6 @@ var (
 	ErrNotFound error = fmt.Errorf("ErrNotFound")
 )
 
-// Worker wraps an in and output channel around the orderbook.
-// * Updates are published on the status channel.
-// * Filled and completed orders are pushed on out.
-// * Errored, cancelled, or otherwise incompleted but finished orders are only
-// viewed through the status updates.
-// * The Worker is responsible for Push and Fill - that's it.
-func Worker(in <-chan *order, out chan<- *order, status chan<- OrderUpdate, book *orderbook) {
-	for ord := range in {
-		// push the order into our books
-		err := book.push(ord)
-		if err != nil {
-			book.markError(ord, err, status)
-		} else {
-			book.markPending(ord, status)
-			// go fill the order and push on out when it's' filled.
-			go book.fill(ord, out, status)
-		}
-	}
-}
-
 // StateMonitor returns a channel that emits order status updates at a given interval.
 func StateMonitor(interval time.Duration) chan OrderUpdate {
 	updates := make(chan OrderUpdate)
@@ -123,9 +95,7 @@ func StateMonitor(interval time.Duration) chan OrderUpdate {
 			case orderUpdated := <-updates:
 				orderStatus[orderUpdated.Order.ID] = orderUpdated.Order
 			case <-ticker.C:
-				for k, v := range orderStatus {
-					log.Printf("%+v - %+v", k, v.isFilled())
-				}
+				log.Printf("statuses: %+v", orderStatus)
 			}
 		}
 	}()
@@ -133,16 +103,102 @@ func StateMonitor(interval time.Duration) chan OrderUpdate {
 	return updates
 }
 
+// Worker wraps an in and output channel around the orderbook.
+// * Updates are published on the status channel.
+// * Filled orders are sent on the out channel.
+// * Errored, cancelled, or otherwise incomplete but finished orders are only
+// viewed through the status updates.
+// * The Worker is responsible for Push and Fill - that's it.
+func Worker(in <-chan *order, out chan<- *order, status chan<- OrderUpdate, book *orderbook) {
+	for fillOrder := range in {
+		err := book.push(fillOrder)
+		if err != nil {
+			book.markError(fillOrder, err, status)
+			continue
+		}
+
+		book.markPending(fillOrder, status)
+		go book.fill(fillOrder, out, status)
+	}
+}
+
+// fill loops over the book and finds orders.
+func (o *orderbook) fill(fillorder *order, out chan<- *order, status chan<- OrderUpdate) {
+	for {
+		if err := o.attemptFill(fillorder, out, status); err != nil {
+			if errors.Is(err, ErrFilled) {
+				break
+			}
+			o.markError(fillorder, err, status)
+		}
+	}
+}
+
+// attemptFill attempts to fill the given order and returns the amount it filled or an error.
+// ***TODO***: mark the deductions in appropriate accounts for all transactions.
+// for now all this does is actually match the orders together.
+func (o *orderbook) attemptFill(fillOrder *order, out chan<- *order, status chan<- OrderUpdate) error {
+	fillOrder.Lock()
+	defer func() {
+		fillOrder.Unlock()
+	}()
+
+	wanted := fillOrder.open - fillOrder.filled
+	if wanted == 0 {
+		if err := o.pull(fillOrder); err != nil {
+			status <- OrderUpdate{
+				Order:  fillOrder,
+				Status: statusErrored,
+				Err:    fmt.Errorf("failed to pull order %+w", err),
+			}
+		}
+		return ErrFilled
+	}
+
+	if fillOrder.side == buyside {
+
+		_, sellOrder, err := o.findLowest(fillOrder.price, sellside)
+		if err != nil {
+			return err
+		}
+
+		sellOrder.Lock()
+		defer sellOrder.Unlock()
+
+		available := sellOrder.open - sellOrder.filled
+
+		switch {
+		case wanted > available:
+			sellOrder.filled += available // okay so the sell order is contended on
+			fillOrder.filled += available
+		case wanted <= available:
+			sellOrder.filled += wanted
+			fillOrder.filled += wanted
+		default:
+			log.Panicln("should never get here; this smells like a bug.")
+		}
+
+		if fillOrder.filled == fillOrder.open {
+			if err := o.pull(sellOrder); err != nil {
+				o.markError(fillOrder, err, status)
+			} else {
+				o.markFilled(fillOrder, out, status)
+			}
+			return ErrFilled
+		}
+		return nil
+	}
+	return nil
+}
+
 // push inserts an order into the books and returns an error if order
 // is invalid or if an error occurred during push.
+// TODO: order validation here
 func (o *orderbook) push(ord *order) error {
 	o.Lock()
 	defer o.Unlock()
 
-	// TODO: order validation here
-
 	if ord.side {
-		// handle buy side
 		if _, ok := o.buy[ord.price]; !ok {
 			o.buy[ord.price] = []*order{ord}
 		} else {
@@ -151,7 +207,6 @@ func (o *orderbook) push(ord *order) error {
 		return nil
 	}
 
-	// handle sell side
 	if _, ok := o.sell[ord.price]; !ok {
 		o.sell[ord.price] = []*order{ord}
 	} else {
@@ -160,116 +215,12 @@ func (o *orderbook) push(ord *order) error {
 	return nil
 }
 
-// fill loops over the book and finds orders.
-func (o *orderbook) fill(fillorder *order, out chan<- *order, status chan<- OrderUpdate) {
-	for {
-		if !fillorder.isFilled() {
-			if err := o.attemptFill(fillorder, out, status); err != nil {
-				// report error and attempt fill again
-				o.markError(fillorder, err, status)
-			}
-			// TODO: time delay here?
-		}
-	}
-}
-
-// attemptFill attempts to fill the given order and returns the amount it filled or an error.
-// * this level of abstraction is useful because it's where we have determined and vetted
-// all of the preconditions and now know that we are for sure about to touch the books.
-// thus we can safely grab a lock and know it was necessary and efficient.
-// * attemptFill acquires locks on *order when necessary for as little time as possible.
-// * attemptFill defers the unlock so be careful making this recursive and note when it cleans up
-// to avoid deadlocks.
-// ***TODO***: mark the deductions in appropriate accounts for all transactions.
-// for now all this does is actually match the orders together.
-func (o *orderbook) attemptFill(fillorder *order, out chan<- *order, status chan<- OrderUpdate) error {
+// pull searches for the order by price and then ID and removes it from the books.
+// Price and ID of the *order must be present on the *order being passed.
+func (o *orderbook) pull(order *order) error {
 	o.Lock()
 	defer o.Unlock()
 
-	fillorder.Lock()
-	defer fillorder.Unlock()
-
-	wanted := fillorder.open - fillorder.filled
-
-	if fillorder.side == buyside {
-		// match buy by finding lowest on sellside
-		_, sellOrder, err := o.findLowest(fillorder.price, sellside)
-		if err != nil {
-			return err
-		}
-
-		sellOrder.Lock()
-		defer sellOrder.Unlock()
-
-		// find out how many units are available
-		available := sellOrder.open - sellOrder.filled
-
-		switch {
-		case wanted > available:
-			// more wanted than available, take what is available, remove and mark as filled
-			sellOrder.filled += available
-			fillorder.filled += available
-
-			if fillorder.open == fillorder.filled {
-				o.markFilled(fillorder, out, status)
-			}
-			if sellOrder.open == sellOrder.filled {
-				o.markFilled(sellOrder, out, status)
-			}
-		case wanted <= available:
-			sellOrder.filled = sellOrder.filled + wanted
-			fillorder.filled = fillorder.filled + wanted
-
-			if fillorder.open == fillorder.filled {
-				o.markFilled(fillorder, out, status)
-			}
-			if sellOrder.open == sellOrder.filled {
-				o.markFilled(sellOrder, out, status)
-			}
-		default:
-			log.Panicln("should never get here; this smells like a bug.")
-		}
-
-		return nil
-	}
-
-	return nil
-}
-
-// markFilled updates an orders status, removes it from the books, and sends it on the output channel.
-func (o *orderbook) markFilled(order *order, out chan<- *order, status chan<- OrderUpdate) {
-	err := o.remove(order)
-	if err != nil {
-		status <- OrderUpdate{
-			Order:  order,
-			Status: statusFilled,
-			Err:    err,
-		}
-	}
-	out <- order
-}
-
-// markError logs the order's status as statusCanceled and sets the error
-func (o *orderbook) markError(order *order, err error, status chan<- OrderUpdate) {
-	// report on status if errored.
-	status <- OrderUpdate{
-		Order:  order,
-		Status: statusErrored,
-		Err:    err,
-	}
-}
-
-// markPending logs the order's status as statusPending
-func (o *orderbook) markPending(order *order, status chan<- OrderUpdate) {
-	// update status to pending
-	status <- OrderUpdate{
-		Order:  order,
-		Status: statusPending,
-	}
-}
-
-// remove searches for the order by ID and removes it from the books.
-func (o *orderbook) remove(order *order) error {
 	if order.ID == "" {
 		return fmt.Errorf("ErrInvalidID")
 	}
@@ -306,11 +257,40 @@ func (o *orderbook) remove(order *order) error {
 	return nil
 }
 
+// markFilled updates an orders status, removes it from the books, and sends it on the output channel.
+func (o *orderbook) markFilled(order *order, out chan<- *order, status chan<- OrderUpdate) {
+	status <- OrderUpdate{
+		Order:  order,
+		Status: statusFilled,
+	}
+	out <- order
+}
+
+// markError logs the order's status as statusCanceled and sets the error.
+func (o *orderbook) markError(order *order, err error, status chan<- OrderUpdate) {
+	status <- OrderUpdate{
+		Order:  order,
+		Status: statusErrored,
+		Err:    err,
+	}
+}
+
+// markPending logs the order's status as statusPending
+func (o *orderbook) markPending(order *order, status chan<- OrderUpdate) {
+	// update status to pending
+	status <- OrderUpdate{
+		Order:  order,
+		Status: statusPending,
+	}
+}
+
 // findLowest recursively searches for the lowest price in the map.
 // It returns the index of the order, the order, and an error if anything went wrong.
 func (o *orderbook) findLowest(price Price, side bool) (int64, *order, error) {
+	o.Lock()
+	defer o.Unlock()
+
 	if side {
-		// handle buy list
 		buyable, ok := o.buy[price]
 		if !ok {
 			if price == 0 {
@@ -327,7 +307,6 @@ func (o *orderbook) findLowest(price Price, side bool) (int64, *order, error) {
 		return int64(0), buyable[0], nil
 	}
 
-	// handle the sell list
 	sellable, ok := o.sell[price]
 	if !ok {
 		if price == 0 {

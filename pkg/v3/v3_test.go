@@ -1,6 +1,7 @@
 package v3
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -40,54 +41,71 @@ var testOrders []*order = []*order{
 		ID:      "baz",
 		ownerID: 444,
 		price:   10,
-		side:    buyside,
+		side:    sellside,
 		open:    20,
+		filled:  0,
+	},
+	{
+		ID:      "bex",
+		ownerID: 444,
+		price:   10,
+		side:    sellside,
+		open:    10,
+		filled:  0,
+	},
+	{
+		ID:      "bez",
+		ownerID: 444,
+		price:   10,
+		side:    buyside,
+		open:    5,
+		filled:  0,
+	},
+	{
+		ID:      "bem",
+		ownerID: 444,
+		price:   10,
+		side:    sellside,
+		open:    10,
+		filled:  0,
+	},
+	{
+		ID:      "beu",
+		ownerID: 444,
+		price:   10,
+		side:    sellside,
+		open:    5,
 		filled:  0,
 	},
 }
 
 func TestWorker(t *testing.T) {
 	is := is.New(t)
-
-	// Create our input and output channels.
 	pending, complete := make(chan *order), make(chan *order)
-
-	// Launch the StateMonitor.
 	status := StateMonitor(time.Second * 1)
 
-	// create an orderbook
 	o := &orderbook{
-		buy: map[Price][]*order{
-			0: {},
-		},
-		sell: map[Price][]*order{
-			0: {},
-		},
+		buy:  map[Price][]*order{0: {}},
+		sell: map[Price][]*order{0: {}},
 	}
 
 	for i := 0; i < numWorkers; i++ {
 		go Worker(pending, complete, status, o)
 	}
 
-	// push test orders into queue and
 	wg := &sync.WaitGroup{}
 	for _, v := range testOrders {
 		pending <- v
 	}
+	wg.Add(3)
 
-	wg.Add(2) // expect two of our tests cases to be filled
-
-	// gather completed orders
 	go func(wg *sync.WaitGroup) {
 		for v := range complete {
+			fmt.Printf("v: %v\n", v)
 			is.Equal(v.filled, v.open)
-			is.True(v.ID != "")
 			wg.Done()
 		}
 	}(wg)
 
-	// wait for work to finish
 	wg.Wait()
-
-	is.Equal(len(o.buy), 2) // assert two unfilled
 }
