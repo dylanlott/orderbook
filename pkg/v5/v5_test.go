@@ -18,11 +18,11 @@ func TestListen(t *testing.T) {
 	writes := make(chan OpWrite, 1000)
 	out := make(chan *Book)
 	errs := make(chan error)
+	matches := make(chan Match)
+	wg := &sync.WaitGroup{}
 
 	// Listen kicks off and processes reads and writes concurrently
-	go Listen(ctx, reads, writes, out, errs)
-
-	wg := &sync.WaitGroup{}
+	go Listen(ctx, reads, writes, out, matches, errs)
 
 	go func() {
 		for err := range errs {
@@ -85,7 +85,7 @@ func TestListen(t *testing.T) {
 			t.Logf("sell write result: %+v", res)
 			wg.Done()
 		}()
-
-		wg.Wait()
 	}
+
+	wg.Wait()
 }

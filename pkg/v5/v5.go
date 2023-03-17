@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 )
 
 // The idea here is to use channels to guard reads and writes to the orderbook.
@@ -32,6 +33,13 @@ type Order struct {
 	Open     uint64
 	Filled   uint64
 	Metadata map[string]string
+	History  []Match
+}
+
+// Match holds a buy and a sell side order
+type Match struct {
+	Buy  *Order
+	Sell *Order
 }
 
 // Book holds buy and sell side orders. OpRead and OpWrite are applied to
@@ -43,7 +51,7 @@ type Book struct {
 
 // Listen takes a reads and a writes channel that it reads from an applies
 // those updates to the Book.
-func Listen(ctx context.Context, reads chan OpRead, writes chan OpWrite, output chan *Book, errs chan error) {
+func Listen(ctx context.Context, reads chan OpRead, writes chan OpWrite, output chan *Book, matches chan Match, errs chan error) {
 	// book is protected by the Listen function.
 	book := &Book{
 		buy: &PriceNode{
@@ -60,10 +68,11 @@ func Listen(ctx context.Context, reads chan OpRead, writes chan OpWrite, output 
 		},
 	}
 
-	// listen for updates and apply them
 	for {
 		select {
 		case <-ctx.Done():
+			// TODO: drain channels and cleanup
+			return
 		case r := <-reads:
 			if r.side == "buy" {
 				found, err := book.buy.Find(r.price)
@@ -82,6 +91,7 @@ func Listen(ctx context.Context, reads chan OpRead, writes chan OpWrite, output 
 				r.result <- found
 				output <- book
 			}
+			// try to match
 		case w := <-writes:
 			if w.side == "buy" {
 				err := book.buy.Insert(w.order)
@@ -89,6 +99,7 @@ func Listen(ctx context.Context, reads chan OpRead, writes chan OpWrite, output 
 					errs <- err
 					continue
 				}
+				// attempt to match
 				w.result <- w.order
 				output <- book
 			} else {
@@ -100,6 +111,12 @@ func Listen(ctx context.Context, reads chan OpRead, writes chan OpWrite, output 
 				w.result <- w.order
 				output <- book
 			}
+		default:
+			fmt.Println("\n===========================buy side\n=================================")
+			book.buy.Print()
+			fmt.Println("\n===========================sell side\n=================================")
+			book.sell.Print()
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
 }
@@ -110,9 +127,10 @@ func Run() {
 	reads := make(chan OpRead)
 	writes := make(chan OpWrite)
 	out := make(chan *Book)
+	matches := make(chan Match)
 	errs := make(chan error)
 
-	go Listen(ctx, reads, writes, out, errs)
+	go Listen(ctx, reads, writes, out, matches, errs)
 
 	for update := range out {
 		log.Printf("[update] %+v", update)
