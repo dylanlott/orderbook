@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"sync"
-	"time"
 )
 
 // The idea here is to use channels to guard reads and writes to the orderbook.
@@ -49,9 +48,18 @@ type Book struct {
 	sell *PriceNode
 }
 
-// Listen takes a reads and a writes channel that it reads from an applies
-// those updates to the Book.
-func Listen(ctx context.Context, reads chan OpRead, writes chan OpWrite, output chan *Book, matches chan Match, errs chan error) {
+// Listen sets up the order book and wraps it in a read and write channel for
+// receiving operations and output, match, and errs channels for
+// handling outputs from the machine.
+// The book itself is protected by this function and is intentionally never directly accessible.
+func Listen(
+	ctx context.Context,
+	reads chan OpRead,
+	writes chan OpWrite,
+	output chan *Book,
+	matches chan Match,
+	errs chan error,
+) {
 	// book is protected by the Listen function.
 	book := &Book{
 		buy: &PriceNode{
@@ -110,19 +118,27 @@ func Listen(ctx context.Context, reads chan OpRead, writes chan OpWrite, output 
 				}
 				w.result <- w.order
 				output <- book
+				found, err := book.buy.Find(w.order.Price)
+				if err != nil {
+					errs <- err
+					continue
+				}
+				matches <- Match{
+					Sell: &w.order,
+					Buy:  found,
+				}
 			}
 		default:
-			fmt.Println("\n===========================buy side\n=================================")
+			fmt.Println("\n===========================buy side=================================")
 			book.buy.Print()
-			fmt.Println("\n===========================sell side\n=================================")
+			fmt.Println("\n===========================sell side=================================")
 			book.sell.Print()
-			time.Sleep(10 * time.Millisecond)
 		}
 	}
 }
 
-// Run listens sets up the reads and writes and listens for them on the book.
-func Run() {
+// Run outputs matches or errors processed from the books.
+func Run() (chan Match, chan error) {
 	ctx := context.Background()
 	reads := make(chan OpRead)
 	writes := make(chan OpWrite)
@@ -132,9 +148,13 @@ func Run() {
 
 	go Listen(ctx, reads, writes, out, matches, errs)
 
-	for update := range out {
-		log.Printf("[update] %+v", update)
-	}
+	go func() {
+		for update := range out {
+			log.Printf("[update] %+v", update)
+		}
+	}()
+
+	return matches, errs
 }
 
 ///////////////////////////

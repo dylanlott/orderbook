@@ -11,14 +11,15 @@ import (
 )
 
 var numWrites int = 1000
+var bufferSize int = 1000
 
 func TestListen(t *testing.T) {
 	ctx := context.Background()
-	reads := make(chan OpRead, 1000)
-	writes := make(chan OpWrite, 1000)
-	out := make(chan *Book)
-	errs := make(chan error)
-	matches := make(chan Match)
+	reads := make(chan OpRead, bufferSize)
+	writes := make(chan OpWrite, bufferSize)
+	out := make(chan *Book, bufferSize)
+	errs := make(chan error, bufferSize)
+	matches := make(chan Match, bufferSize)
 	wg := &sync.WaitGroup{}
 
 	// Listen kicks off and processes reads and writes concurrently
@@ -36,7 +37,13 @@ func TestListen(t *testing.T) {
 		}
 	}()
 
-	// insert orders into the tree
+	go func() {
+		for match := range matches {
+			fmt.Printf("match: %v\n", match)
+		}
+	}()
+
+	// insert orders into the books
 	for i := 0; i < numWrites; i++ {
 		buy := OpWrite{
 			side: "buy",
