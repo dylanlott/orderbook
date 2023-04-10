@@ -343,6 +343,24 @@ type PriceNode struct {
 	left   *PriceNode
 }
 
+// orderTree defines the function for interacting with a tree that holds Order types.
+// TODO: Design a generics interface implementation for this.
+type orderTree interface {
+	// List grabs and sorts every order in the books and returns the processed list
+	List() ([]Order, error)
+	// Insert adds an order to the books and returns an error if that failed.
+	Insert(o Order) error
+	// Find returns the order or an error but it does not remove the order from the book.
+	// This is for seeing the current price orders for example and other queries on the books.
+	Find(price int64) (Order, error)
+	// Pull finds an order at a given price and returns it or an error. If it errors,
+	// it does alter the books.
+	Pull(price int64) (Order, error)
+	// Match is a callback function that gives you access to the order in the tree
+	// It gives you access to both, but removal of the order should happen by calling Pull.
+	Match(fillOrder Order, cb func(bookOrder Order))
+}
+
 // List grabs a lock on the whole tree and reads all of the orders from it.
 func (t *PriceNode) List() ([]Order, error) {
 	t.Lock()
@@ -556,7 +574,7 @@ func (t *PriceNode) RemoveByID(order Order) (Order, error) {
 	return nil, fmt.Errorf("ErrNoExist")
 }
 
-//Print prints the elements in left-current-right order.
+// Print prints the elements in left-current-right order.
 func (t *PriceNode) Print() {
 	if t == nil {
 		return

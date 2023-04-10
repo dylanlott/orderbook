@@ -98,7 +98,7 @@ func (t *TreeNode) Find(price float64) (Order, error) {
 }
 
 // Match will iterate through the tree based on the price of the
-// fillOrder and fijjnds a bookOrder that matches its price.
+// fillOrder and finds a bookOrder that matches its price.
 func (t *TreeNode) Match(fillOrder Order, cb func(bookOrder Order)) {
 	if t == nil {
 		cb(nil)
@@ -225,7 +225,7 @@ func (t *TreeNode) RemoveFromPriceList(order Order) error {
 	panic("should not get here; this smells like a bug")
 }
 
-//PrintInorder prints the elements in left-current-right order.
+// PrintInorder prints the elements in left-current-right order.
 func (t *TreeNode) PrintInorder() {
 	if t == nil {
 		return

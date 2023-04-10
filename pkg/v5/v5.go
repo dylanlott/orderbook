@@ -14,6 +14,7 @@ type OpRead struct {
 	side   string
 	price  uint64
 	result chan *Order
+	err    chan error
 }
 
 // OpWrite inserts an order into the Book
@@ -31,8 +32,8 @@ type Order struct {
 	Price    uint64
 	Open     uint64
 	Filled   uint64
-	Metadata map[string]string
 	History  []Match
+	Metadata map[string]string
 }
 
 // Match holds a buy and a sell side order
@@ -99,7 +100,6 @@ func Listen(
 				r.result <- found
 				output <- book
 			}
-			// try to match
 		case w := <-writes:
 			if w.side == "buy" {
 				err := book.buy.Insert(w.order)
@@ -107,9 +107,17 @@ func Listen(
 					errs <- err
 					continue
 				}
-				// attempt to match
 				w.result <- w.order
 				output <- book
+				found, err := book.sell.Find(w.order.Price)
+				if err != nil {
+					errs <- err
+					continue
+				}
+				matches <- Match{
+					Buy:  &w.order,
+					Sell: found,
+				}
 			} else {
 				err := book.sell.Insert(w.order)
 				if err != nil {
@@ -128,11 +136,6 @@ func Listen(
 					Buy:  found,
 				}
 			}
-		default:
-			fmt.Println("\n===========================buy side=================================")
-			book.buy.Print()
-			fmt.Println("\n===========================sell side=================================")
-			book.sell.Print()
 		}
 	}
 }
