@@ -86,26 +86,6 @@ func (n *Node) Print() {
 	n.Right.Print()
 }
 
-func (n *Node) Rightmost() *Node {
-	if n == nil {
-		return nil
-	}
-	if n.Right != nil {
-		return n.Right.Rightmost()
-	}
-	return n
-}
-
-func (n *Node) Leftmost() *Node {
-	if n == nil {
-		return nil
-	}
-	if n.Left != nil {
-		return n.Left.Leftmost()
-	}
-	return n
-}
-
 func (n *Node) HighestPrice() uint64 {
 	if n == nil {
 		return 0

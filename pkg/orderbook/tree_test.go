@@ -23,21 +23,26 @@ func TestFind(t *testing.T) {
 	n := root.Find(12)
 	is.Equal(len(n.Orders), 3)
 
-	// Finding a root that doesn't exist should create it and return the root.
 	n = root.Find(9)
 	n.Print()
 	is.Equal(n.Price, uint64(9))
 	is.Equal(len(n.Orders), 0)
 
-	right := root.Rightmost()
-	left := root.Leftmost()
-	is.Equal(right.Price, uint64(15))
-	is.Equal(left.Price, uint64(5))
-
 	highest := root.HighestPrice()
 	lowest := root.LowestPrice()
 	is.Equal(highest, uint64(15))
 	is.Equal(lowest, uint64(5))
+}
+
+func TestList(t *testing.T) {
+	is := is.New(t)
+	root := NewNode(10)
+	seedRootTree(root)
+
+	orderlist := root.List()
+	is.Equal(len(orderlist), 6)
+	is.Equal(orderlist[0].Price, uint64(5))
+	is.Equal(orderlist[5].Price, uint64(15))
 }
 
 func seedRootTree(root *Node) {
