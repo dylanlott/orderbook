@@ -14,8 +14,6 @@ import (
 var numOps int = 10_000
 var bufferSize int = 1000
 
-var statsTotal int = 0
-
 func TestRun(t *testing.T) {
 	ctx := context.Background()
 	wg := &sync.WaitGroup{}

@@ -1,5 +1,7 @@
 package orderbook
 
+import "fmt"
+
 type Node struct {
 	Price  uint64
 	Orders []*Order
@@ -14,14 +16,10 @@ func NewNode(price uint64) *Node {
 	}
 }
 
-func (n *Node) AddOrder(order *Order) {
-	n.Orders = append(n.Orders, order)
-}
-
 func (n *Node) Insert(order *Order) *Node {
 	if n == nil {
-		node := NewNode(order.Price)
-		return node.Insert(order)
+		n = NewNode(order.Price)
+		return n.Insert(order)
 	}
 
 	switch {
@@ -47,9 +45,15 @@ func (n *Node) RemoveOrder(orderID string) bool {
 	return false
 }
 
+func (n *Node) AddOrder(order *Order) {
+	n.Orders = append(n.Orders, order)
+}
+
+// Find returns the node for a given price.
 func (n *Node) Find(price uint64) *Node {
 	if n == nil {
-		return nil
+		n := NewNode(price)
+		return n
 	}
 	if price == n.Price {
 		return n
@@ -58,4 +62,13 @@ func (n *Node) Find(price uint64) *Node {
 	} else {
 		return n.Right.Find(price)
 	}
+}
+
+func (n *Node) Print() {
+	if n == nil {
+		return
+	}
+	n.Left.Print()
+	fmt.Printf("Price: %d, Orders: %v\n", n.Price, n.Orders)
+	n.Right.Print()
 }

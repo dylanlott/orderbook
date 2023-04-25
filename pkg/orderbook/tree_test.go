@@ -1,60 +1,59 @@
 package orderbook
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/matryer/is"
+)
 
 func TestInsert(t *testing.T) {
+	is := is.New(t)
 	root := NewNode(10)
+
 	order1 := &Order{ID: "1", Price: 5}
 	order2 := &Order{ID: "2", Price: 15}
 	order3 := &Order{ID: "3", Price: 8}
 	order4 := &Order{ID: "4", Price: 12}
+	order5 := &Order{ID: "5", Price: 12}
+	order6 := &Order{ID: "6", Price: 12}
 
 	root.Insert(order1)
 	root.Insert(order2)
 	root.Insert(order3)
 	root.Insert(order4)
+	root.Insert(order5)
+	root.Insert(order6)
 
-	if root.Price != 10 {
-		t.Errorf("Expected root price to be 10, got %v", root.Price)
-	}
+	root.Print()
 
-	if len(root.Orders) != 0 {
-		t.Errorf("Expected root orders to be empty, got %v", root.Orders)
-	}
+	ten := root.Find(10)
+	is.Equal(len(ten.Orders), 0)
+}
 
-	left := root.Left
-	if left == nil || left.Price != 5 {
-		t.Errorf("Expected node with price 5 to exist on the left of root")
-	}
+func TestFind(t *testing.T) {
+	is := is.New(t)
+	root := NewNode(10)
 
-	if len(left.Orders) != 1 || left.Orders[0].ID != "1" {
-		t.Errorf("Expected node with price 5 to have order with ID 1")
-	}
+	order1 := &Order{ID: "1", Price: 5}
+	order2 := &Order{ID: "2", Price: 15}
+	order3 := &Order{ID: "3", Price: 8}
+	order4 := &Order{ID: "4", Price: 12}
+	order5 := &Order{ID: "5", Price: 12}
+	order6 := &Order{ID: "6", Price: 12}
 
-	right := root.Right
-	if right == nil || right.Price != 15 {
-		t.Errorf("Expected node with price 15 to exist on the right of root")
-	}
+	root.Insert(order1)
+	root.Insert(order2)
+	root.Insert(order3)
+	root.Insert(order4)
+	root.Insert(order5)
+	root.Insert(order6)
 
-	if len(right.Orders) != 0 {
-		t.Errorf("Expected node with price 15 to have no orders")
-	}
+	n := root.Find(12)
+	is.Equal(len(n.Orders), 3)
 
-	rightLeft := right.Left
-	if rightLeft == nil || rightLeft.Price != 12 {
-		t.Errorf("Expected node with price 12 to exist on the left of node with price 15")
-	}
-
-	if len(rightLeft.Orders) != 1 || rightLeft.Orders[0].ID != "4" {
-		t.Errorf("Expected node with price 12 to have order with ID 4")
-	}
-
-	rightRight := right.Right
-	if rightRight == nil || rightRight.Price != 8 {
-		t.Errorf("Expected node with price 8 to exist on the right of node with price 15")
-	}
-
-	if len(rightRight.Orders) != 1 || rightRight.Orders[0].ID != "3" {
-		t.Errorf("Expected node with price 8 to have order with ID 3")
-	}
+	// Finding a root that doesn't exist should create it and return the root.
+	n = root.Find(9)
+	n.Print()
+	is.Equal(n.Price, uint64(9))
+	is.Equal(len(n.Orders), 0)
 }

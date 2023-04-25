@@ -111,23 +111,8 @@ func Start(
 			// TODO: drain channels and cleanup
 			return
 		case r := <-reads:
-			if r.OrderID != "" {
-				// TODO binary traversal to find order by ID
-			}
 			if r.Side == "buy" {
-				// found, err := book.buy.Find(r.Price)
-				// if err != nil {
-				// 	errs <- err
-				// 	r.Result <- ReadResult{
-				// 		Order: Order{},
-				// 		Err:   err,
-				// 	}
-				// 	continue
-				// }
-				r.Result <- ReadResult{
-					Order: Order{},
-					Err:   nil,
-				}
+				panic("not impl")
 			}
 		case w := <-writes:
 			if w.Side == "buy" {
