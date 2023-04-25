@@ -64,6 +64,19 @@ func (n *Node) Find(price uint64) *Node {
 	}
 }
 
+func (n *Node) List() []*Order {
+	if n == nil {
+		return nil
+	}
+	left := n.Left.List()
+	right := n.Right.List()
+	orders := make([]*Order, 0, len(n.Orders)+len(left)+len(right))
+	orders = append(orders, left...)
+	orders = append(orders, n.Orders...)
+	orders = append(orders, right...)
+	return orders
+}
+
 func (n *Node) Print() {
 	if n == nil {
 		return
@@ -71,4 +84,44 @@ func (n *Node) Print() {
 	n.Left.Print()
 	fmt.Printf("Price: %d, Orders: %v\n", n.Price, n.Orders)
 	n.Right.Print()
+}
+
+func (n *Node) Rightmost() *Node {
+	if n == nil {
+		return nil
+	}
+	if n.Right != nil {
+		return n.Right.Rightmost()
+	}
+	return n
+}
+
+func (n *Node) Leftmost() *Node {
+	if n == nil {
+		return nil
+	}
+	if n.Left != nil {
+		return n.Left.Leftmost()
+	}
+	return n
+}
+
+func (n *Node) HighestPrice() uint64 {
+	if n == nil {
+		return 0
+	}
+	if len(n.Orders) > 0 {
+		return n.Price
+	}
+	return n.Right.HighestPrice()
+}
+
+func (n *Node) LowestPrice() uint64 {
+	if n == nil {
+		return 0
+	}
+	if len(n.Orders) > 0 {
+		return n.Price
+	}
+	return n.Left.LowestPrice()
 }
