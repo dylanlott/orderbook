@@ -8,25 +8,8 @@ import (
 	"github.com/dylanlott/orderbook/pkg/accounts"
 )
 
-// The idea here is to use channels to guard reads and writes to the orderbook.
-
-// OpRead gets an Order from the book.
-type OpRead struct {
-	Side    string
-	Price   uint64
-	OrderID string
-	Result  chan ReadResult
-}
-
-// ReadResult is returned for an OpRead
-type ReadResult struct {
-	Order Order
-	Err   error
-}
-
 // OpWrite inserts an order into the Book
 type OpWrite struct {
-	Side   string
 	Order  Order
 	Result chan WriteResult
 }
@@ -80,7 +63,6 @@ type Book struct {
 func Start(
 	ctx context.Context,
 	accts accounts.AccountManager,
-	reads chan OpRead,
 	writes chan OpWrite,
 	fills chan FillResult,
 	errs chan error,
@@ -110,12 +92,8 @@ func Start(
 		case <-ctx.Done():
 			// TODO: drain channels and cleanup
 			return
-		case r := <-reads:
-			if r.Side == "buy" {
-				panic("not impl")
-			}
 		case w := <-writes:
-			if w.Side == "buy" {
+			if w.Order.Side == "buy" {
 				book.buy.Insert(&w.Order)
 				go attemptFill(book, w.Order, matches, errs)
 				w.Result <- WriteResult{
@@ -130,6 +108,9 @@ func Start(
 					Err:   nil,
 				}
 			}
+		default:
+			book.buy.Print()
+			book.sell.Print()
 		}
 	}
 }

@@ -19,7 +19,6 @@ func TestRun(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	accts := &accounts.InMemoryManager{}
-	reads := make(chan OpRead, bufferSize)
 	writes := make(chan OpWrite, bufferSize)
 	errs := make(chan error, bufferSize)
 	fills := make(chan FillResult, bufferSize)
@@ -36,12 +35,11 @@ func TestRun(t *testing.T) {
 		}
 	}()
 
-	go Start(ctx, accts, reads, writes, fills, errs)
+	go Start(ctx, accts, writes, fills, errs)
 
 	for i := 0; i < numOps; i++ {
 		// BUY WRITE
 		buyWrite := OpWrite{
-			Side: "buy",
 			Order: Order{
 				ID:     fmt.Sprintf("%v", i),
 				Kind:   "limit",
@@ -64,7 +62,6 @@ func TestRun(t *testing.T) {
 
 		// SELL WRITE
 		sellWrite := OpWrite{
-			Side: "sell",
 			Order: Order{
 				ID:     fmt.Sprintf("%v", i),
 				Kind:   "limit",
@@ -87,8 +84,4 @@ func TestRun(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-func TestFindLowest(t *testing.T) {
-
 }

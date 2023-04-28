@@ -24,7 +24,6 @@ func main() {
 		Run: func(cmd *cobra.Command, args []string) {
 			motd()
 			ctx := context.Background()
-			reads := make(chan orderbook.OpRead, bufferSize)
 			writes := make(chan orderbook.OpWrite, bufferSize)
 			accts := &accounts.InMemoryManager{}
 			errs := make(chan error, bufferSize)
@@ -51,7 +50,7 @@ func main() {
 			// Start processes reads and writes to
 			// produce matches and errors
 			// DEVLOG: CURRENTLY RESULTS IN DEADLOCK -- WHY??
-			orderbook.Start(ctx, accts, reads, writes, fills, errs)
+			orderbook.Start(ctx, accts, writes, fills, errs)
 		},
 	}
 
