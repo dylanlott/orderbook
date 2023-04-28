@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
+	"sync"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
 )
@@ -52,6 +54,8 @@ type Match struct {
 // Book holds buy and sell side orders. OpRead and OpWrite are applied to
 // to the book. Buy and sell side orders are binary trees of order lists.
 type Book struct {
+	sync.RWMutex
+
 	buy  *Node
 	sell *Node
 }
@@ -84,8 +88,6 @@ func Start(
 		},
 	}
 
-	go handleMatches(ctx, accts, book, matches, fills, errs)
-
 	// TODO: factor out into a handleFills function
 	for {
 		select {
@@ -94,17 +96,19 @@ func Start(
 			return
 		case w := <-writes:
 			if w.Order.Side == "buy" {
-				book.buy.Insert(&w.Order)
-				go attemptFill(book, w.Order, matches, errs)
+				o := &w.Order
+				book.buy.Insert(o)
+				go attemptFill(book, accts, o, matches, errs)
 				w.Result <- WriteResult{
-					Order: w.Order,
+					Order: *o,
 					Err:   nil,
 				}
 			} else {
-				book.sell.Insert(&w.Order)
-				go attemptFill(book, w.Order, matches, errs)
+				o := &w.Order
+				book.sell.Insert(o)
+				go attemptFill(book, accts, o, matches, errs)
 				w.Result <- WriteResult{
-					Order: w.Order,
+					Order: *o,
 					Err:   nil,
 				}
 			}
@@ -115,146 +119,172 @@ func Start(
 	}
 }
 
-// handleMatches listens for incoming Matches and executes their
-// balance transfers and updates the order balances.
-func handleMatches(
-	ctx context.Context,
-	accts accounts.AccountManager,
-	book *Book,
-	matchCh chan Match,
-	fills chan FillResult,
-	errs chan error,
-) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case match := <-matchCh:
-			// lookup buyer and seller accounts
-			buyer, err := accts.Get(match.Buy.AccountID)
-			if err != nil {
-				errs <- fmt.Errorf("failed to look up buyer: %s", match.Buy.AccountID)
-				return
-			}
-			seller, err := accts.Get(match.Sell.AccountID)
-			if err != nil {
-				errs <- fmt.Errorf("failed to look up seller: %s", match.Sell.AccountID)
-				return
-			}
-
-			// determine quantities for price calculations
-			wanted := match.Buy.Open
-			available := match.Sell.Open
-
-			// handle differences in offerings
-			switch {
-			case wanted == available:
-				// want exactly as much as is available, take it all
-				total := wanted * match.Sell.Price
-
-				// try to transfer; accts.Tx errors if buyer has insufficient funds
-				balances, err := accts.Tx(buyer.UserID(), seller.UserID(), float64(total))
-				if err != nil {
-					log.Printf("accounts error: %+v", err)
-					errs <- err
-					return
-				}
-
-				log.Printf("balances updated: %+v", balances)
-
-				// TODO: remove orders from the books
-
-				fr := FillResult{
-					Filled: wanted,
-					Buy:    match.Buy,
-					Sell:   match.Sell,
-				}
-
-				fills <- fr
-			case wanted > available:
-				// want more than available, take it all
-				total := available * match.Sell.Price
-
-				// try to transfer; accts.Tx errors if buyer has insufficient funds
-				balances, err := accts.Tx(buyer.UserID(), seller.UserID(), float64(total))
-				if err != nil {
-					log.Printf("accounts error: %+v", err)
-					errs <- err
-					return
-				}
-
-				log.Printf("balances updated: %+v", balances)
-
-				// _, err = book.sell.RemoveByID(match.Sell)
-				// if err != nil {
-				// 	errs <- fmt.Errorf("failed to remove order: %+v", err)
-				// 	return
-				// }
-
-				fr := FillResult{
-					Filled: available,
-					Buy:    match.Buy,
-					Sell:   match.Sell,
-				}
-
-				fills <- fr
-			case wanted < available:
-				// want less than available, only take wanted
-				total := wanted * match.Sell.Price
-
-				// try to transfer; accts.Tx errors if buyer has insufficient funds
-				balances, err := accts.Tx(buyer.UserID(), seller.UserID(), float64(total))
-				if err != nil {
-					log.Printf("accounts error: %+v", err)
-					errs <- err
-					return
-				}
-
-				log.Printf("balances updated: %+v", balances)
-
-				match.Buy.Filled += wanted
-				match.Sell.Filled += wanted
-
-				// _, err = book.buy.RemoveByID(match.Buy)
-				// if err != nil {
-				// 	errs <- fmt.Errorf("failed to remove order: %+v", err)
-				// 	return
-				// }
-
-				fr := FillResult{
-					Filled: available,
-					Buy:    match.Buy,
-					Sell:   match.Buy,
-				}
-
-				fills <- fr
-			}
-		}
-	}
-
-}
-
-// attemptFill is meant to be called in a goroutine and
-// loops the books until it finds a Match then it sends
-// then on matchse channel for execution.
 func attemptFill(
 	book *Book,
-	fillorder Order,
+	acc accounts.AccountManager,
+	fillorder *Order,
 	matches chan Match,
 	errs chan error,
 ) {
+	// Loop as long as the order is not filled
 	for fillorder.Filled < fillorder.Open {
-		// Loop as long as the order is not filled
+		book.RWMutex.Lock()
+
 		if fillorder.Side == "buy" {
-			//
-			// BUY SIDE order; match to sell side
-			//
-			panic("not impl")
-		} else if fillorder.Side == "sell" {
-			//
-			// SELL SIDE order; match to buy side
-			//
-			panic("not impl")
+			// match to sell
+			low := book.sell.FindMin()
+			if len(low.Orders) == 0 {
+				removed := book.buy.Remove(low.Price)
+				fmt.Printf("removed from the binary tree ### removed.Price: %v\n", removed.Price)
+				continue
+			}
+
+			// set some initial parameters
+			match := low.Orders[0]
+			available := match.Open - match.Filled
+			wanted := fillorder.Open - fillorder.Filled
+
+			// lookup buyer and seller accounts
+			buyer, err := acc.Get(fillorder.AccountID)
+			if err != nil {
+				errs <- fmt.Errorf("failed to look up buyer: %s", fillorder.AccountID)
+				return
+			}
+			seller, err := acc.Get(match.AccountID)
+			if err != nil {
+				errs <- fmt.Errorf("failed to look up seller: %s", match.AccountID)
+				return
+			}
+
+			if wanted > available {
+				m := Match{
+					Buy:  fillorder,
+					Sell: match,
+				}
+
+				// amount is calculated from price and available quantity
+				amount := float64((available * fillorder.Price) / 100)
+				balances, err := acc.Tx(buyer.UserID(), seller.UserID(), amount)
+				if err != nil {
+					errs <- fmt.Errorf("failed to transfer: %v", err)
+					return
+				}
+				log.Printf("[TX] updated balances: %+v", balances)
+
+				// remove it from books,
+				remaining := low.Orders[1:]
+				low.Orders = remaining
+				log.Printf("[BOOK] updated orders: %+v", low.Orders)
+
+				// fill both sides
+				fillorder.Filled += available
+				match.Filled += available
+
+				// mark as filled
+				log.Printf("[MATCH] %+v", m)
+				matches <- m
+			}
+
+			if wanted < available {
+				m := Match{
+					Buy:  fillorder,
+					Sell: match,
+				}
+
+				// amount is calculated from price and available quantity
+				amount := float64((available * fillorder.Price) / 100)
+				balances, err := acc.Tx(buyer.UserID(), seller.UserID(), amount)
+				if err != nil {
+					errs <- fmt.Errorf("failed to transfer: %v", err)
+					return
+				}
+				log.Printf("[TX] updated balances: %+v", balances)
+
+				// update order quantities
+				fillorder.Filled += wanted
+				match.Filled += wanted
+
+				// remove the order from the buyside books
+				if ok := book.buy.RemoveOrder(fillorder.ID); !ok {
+					errs <- fmt.Errorf("failed to remove order from buy side: %+v", fillorder)
+				}
+
+				// mark as filled
+				matches <- m
+			}
+
+			if wanted == available {
+				_ = Match{
+					Buy:  fillorder,
+					Sell: match,
+				}
+
+				// amount is calculated from price and available quantity
+				amount := float64((available * fillorder.Price) / 100)
+				balances, err := acc.Tx(buyer.UserID(), seller.UserID(), amount)
+				if err != nil {
+					errs <- fmt.Errorf("failed to transfer: %v", err)
+					return
+				}
+				log.Printf("[TX] updated balances: %+v", balances)
+
+				// mark both as filled
+				match.Filled += available
+				fillorder.Filled += available
+
+				// remove it from books,
+				remaining := low.Orders[1:]
+				low.Orders = remaining
+
+				// remvoe the buy order from the tree
+				if ok := book.buy.RemoveOrder(fillorder.ID); !ok {
+					// NB: technically this means the order wasn't found, because it can't fail.
+					errs <- fmt.Errorf("failed to remove order from books: %+v", fillorder)
+				}
+			}
 		}
 	}
+}
+
+// An alternative approach to order matching that relies on sorting
+// two opposing slices of Orders.
+func MatchOrders(buyOrders []Order, sellOrders []Order) []Order {
+	// Sort the orders by price
+	sort.Slice(buyOrders, func(i, j int) bool {
+		return buyOrders[i].Price > buyOrders[j].Price
+	})
+	sort.Slice(sellOrders, func(i, j int) bool {
+		return sellOrders[i].Price > sellOrders[j].Price
+	})
+
+	// Initialize the index variables
+	buyIndex := 0
+	sellIndex := 0
+	var filledOrders []Order
+
+	// Loop until there are no more Sell orders left
+	for sellIndex < len(sellOrders) {
+		// Check if the current Buy order matches the current Sell order
+		if buyOrders[buyIndex].Price >= sellOrders[sellIndex].Price {
+			// Fill the Buy order with the Sell order
+			filledOrder := Order{
+				// Buyer: buyOrders[buyIndex].Buyer,
+				// Seller: sellOrders[sellIndex].Seller,
+				Price: sellOrders[sellIndex].Price,
+			}
+			filledOrders = append(filledOrders, filledOrder)
+			// Increment the Sell order index
+			sellIndex++
+		} else {
+			// Move on to the next Buy order
+			buyIndex++
+		}
+		// Check if there are no more Buy orders left
+		if buyIndex == len(buyOrders) {
+			break
+		}
+	}
+
+	// Return the list of filled orders
+	return filledOrders
 }

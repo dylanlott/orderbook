@@ -86,22 +86,56 @@ func (n *Node) Print() {
 	n.Right.Print()
 }
 
-func (n *Node) HighestPrice() uint64 {
+func (n *Node) Remove(value uint64) *Node {
 	if n == nil {
-		return 0
+		return nil
 	}
-	if len(n.Orders) > 0 {
-		return n.Price
+	if value < n.Price {
+		n.Left = n.Left.Remove(value)
+		return n
+	} else if value > n.Price {
+		n.Right = n.Right.Remove(value)
+		return n
 	}
-	return n.Right.HighestPrice()
+	// If value == n.Value.Price, then we need to remove this node.
+	// There are three cases to consider:
+	// 1. The node has no children.
+	// 2. The node has one child.
+	// 3. The node has two children.
+	if n.Left == nil && n.Right == nil {
+		return nil
+	}
+	if n.Left == nil {
+		return n.Right
+	}
+	if n.Right == nil {
+		return n.Left
+	}
+	// If we get here, the node has two children.
+	// We can replace the node with its in-order successor
+	// (i.e., the smallest node in its right subtree).
+	successor := n.Right.FindMin()
+	n.Price = successor.Price
+	n.Right = n.Right.Remove(successor.Price)
+	return n
 }
 
-func (n *Node) LowestPrice() uint64 {
+func (n *Node) FindMin() *Node {
 	if n == nil {
-		return 0
+		return nil
 	}
-	if len(n.Orders) > 0 {
-		return n.Price
+	if n.Left == nil {
+		return n
 	}
-	return n.Left.LowestPrice()
+	return n.Left.FindMin()
+}
+
+func (n *Node) FindMax() *Node {
+	if n == nil {
+		return nil
+	}
+	if n.Right == nil {
+		return n
+	}
+	return n.Right.FindMax()
 }
