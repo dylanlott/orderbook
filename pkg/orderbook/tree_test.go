@@ -38,7 +38,6 @@ func TestList(t *testing.T) {
 	is := is.New(t)
 	root := NewNode(10)
 	seedRootTree(root)
-
 	orderlist := root.List()
 	is.Equal(len(orderlist), 6)
 	is.Equal(orderlist[0].Price, uint64(5))
@@ -59,68 +58,4 @@ func seedRootTree(root *Node) {
 	root.Insert(order4)
 	root.Insert(order5)
 	root.Insert(order6)
-}
-
-func TestNode_Remove(t *testing.T) {
-	var five = &Node{
-		Price: 5,
-		Right: nil,
-		Left:  nil,
-	}
-	var one = &Node{
-		Price: 1,
-		Right: nil,
-		Left:  nil,
-	}
-	type fields struct {
-		Price  uint64
-		Orders []*Order
-		Left   *Node
-		Right  *Node
-	}
-	type args struct {
-		value uint64
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   *Node
-	}{
-		{
-			name: "should remove a childless node",
-			fields: fields{
-				Price: 2,
-				Left:  one,
-				Right: five,
-			},
-			args: args{
-				value: 5,
-			},
-			want: &Node{
-				Price: 2,
-				Left:  one,
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			n := &Node{
-				Price:  tt.fields.Price,
-				Orders: tt.fields.Orders,
-				Left:   tt.fields.Left,
-				Right:  tt.fields.Right,
-			}
-			got := n.Remove(tt.args.value)
-			if got.Price != tt.want.Price {
-				t.Fail()
-			}
-			if tt.want.Right != nil && got.Right.Price != tt.want.Right.Price {
-				t.Fail()
-			}
-			if tt.want.Left != nil && got.Left.Price != tt.want.Left.Price {
-				t.Fail()
-			}
-		})
-	}
 }

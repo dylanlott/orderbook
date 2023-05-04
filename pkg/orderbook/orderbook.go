@@ -1,3 +1,6 @@
+// Package orderbook is an order-matching engine written in
+// Go as part of an experiment of iteration on designs
+// in a non-trivial domain.
 package orderbook
 
 import (
@@ -134,8 +137,6 @@ func attemptFill(
 			// match to sell
 			low := book.sell.FindMin()
 			if len(low.Orders) == 0 {
-				removed := book.buy.Remove(low.Price)
-				fmt.Printf("removed from the binary tree ### removed.Price: %v\n", removed.Price)
 				continue
 			}
 
@@ -246,8 +247,12 @@ func attemptFill(
 	}
 }
 
-// An alternative approach to order matching that relies on sorting
-// two opposing slices of Orders.
+// Matcher func allows a different matching algorithm to be swapped out
+// in the orderbook.
+type Matcher func(buy, sell []Order) []Order
+
+// MatchOrders is an alternative approach to order matching that
+// works by aligning two opposing sorted slices of Orders.
 func MatchOrders(buyOrders []Order, sellOrders []Order) []Order {
 	// Sort the orders by price
 	sort.Slice(buyOrders, func(i, j int) bool {
