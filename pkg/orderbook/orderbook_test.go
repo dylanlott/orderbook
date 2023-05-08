@@ -87,6 +87,18 @@ func TestRun(t *testing.T) {
 }
 
 func Test_attemptFill(t *testing.T) {
+	acc := &accounts.InMemoryManager{
+		Accounts: map[string]*accounts.UserAccount{
+			"foo@test.com": {
+				Email:          "foo@test.com",
+				CurrentBalance: 1000.0,
+			},
+			"bar@test.com": {
+				Email:          "bar@test.com",
+				CurrentBalance: 1000.0,
+			},
+		},
+	}
 	var fillorder = &Order{
 		Price:     11,
 		ID:        "foo",
@@ -119,7 +131,7 @@ func Test_attemptFill(t *testing.T) {
 		args args
 	}{
 		{
-			name: "should fill an exact order",
+			name: "should fill exact",
 			args: args{
 				book: &Book{
 					buy: &Node{
@@ -147,7 +159,7 @@ func Test_attemptFill(t *testing.T) {
 						Right: &Node{},
 					},
 				},
-				acc:       &accounts.InMemoryManager{},
+				acc:       acc,
 				fillorder: fillorder,
 				matches:   make(chan Match),
 				errs:      make(chan error),

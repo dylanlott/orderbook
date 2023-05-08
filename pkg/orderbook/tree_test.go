@@ -59,3 +59,10 @@ func seedRootTree(root *Node) {
 	root.Insert(order5)
 	root.Insert(order6)
 }
+
+func TestNode_RemoveOrder(t *testing.T) {
+	is := is.New(t)
+	root := NewNode(10)
+	seedRootTree(root)
+	is.True(root.RemoveOrder(&Order{ID: "5", Price: 12}))
+}

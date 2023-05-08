@@ -46,11 +46,16 @@ func (n *Node) Insert(order *Order) *Node {
 
 // RemoveOrder removes an Order from a Node's list of Orders.
 // * Must be called on the correct node.
-func (n *Node) RemoveOrder(orderID string) bool {
-	for i, order := range n.Orders {
-		if order.ID == orderID {
-			n.Orders = append(n.Orders[:i], n.Orders[i+1:]...)
-			return true
+func (n *Node) RemoveOrder(order *Order) bool {
+	found := n.Find(order.Price)
+
+	if found.Price == order.Price {
+		for i, o := range found.Orders {
+			if order.ID == o.ID {
+				// slice the order out of the found nodes orderlist
+				n.Orders = append(found.Orders[:i], found.Orders[i+1:]...)
+				return true
+			}
 		}
 	}
 	return false
