@@ -119,7 +119,7 @@ func Test_attemptFill(t *testing.T) {
 		args args
 	}{
 		{
-			name: "should fill an order",
+			name: "should fill an exact order",
 			args: args{
 				book: &Book{
 					buy: &Node{
@@ -157,10 +157,9 @@ func Test_attemptFill(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			go attemptFill(tt.args.book, tt.args.acc, fillorder, tt.args.matches, tt.args.errs)
-			got := tt.args.matches
+			got := <-tt.args.matches
 			fmt.Printf("got: %v\n", got)
 			fmt.Printf("tt.args.book: %v\n", tt.args.book)
-
 			fmt.Printf("tt.args.book.buy.FindMax(): %v\n", tt.args.book.buy.FindMax())
 			fmt.Printf("tt.args.book.sell.FindMin(): %v\n", tt.args.book.sell.FindMin())
 		})
