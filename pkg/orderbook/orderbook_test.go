@@ -86,7 +86,7 @@ func TestRun(t *testing.T) {
 	wg.Wait()
 }
 
-func Test_attemptFill(t *testing.T) {
+func TestAttemptFill(t *testing.T) {
 	acc := &accounts.InMemoryManager{
 		Accounts: map[string]*accounts.UserAccount{
 			"foo@test.com": {
@@ -161,19 +161,89 @@ func Test_attemptFill(t *testing.T) {
 				},
 				acc:       acc,
 				fillorder: fillorder,
-				matches:   make(chan Match),
-				errs:      make(chan error),
+				matches:   make(chan Match, 1000),
+				errs:      make(chan error, 1000),
+			},
+		},
+		{
+			name: "should fill greedy",
+			args: args{
+				book: &Book{
+					buy: &Node{
+						Price:  10,
+						Orders: []*Order{},
+						Left:   &Node{},
+						Right: &Node{
+							Price: 11,
+							Orders: []*Order{
+								{
+									Price:     11,
+									ID:        "foo",
+									Side:      "buy",
+									Filled:    0,
+									Open:      20,
+									AccountID: "foo@test.com",
+									Kind:      "market",
+									History:   make([]Match, 0),
+								},
+							},
+							Left:  &Node{},
+							Right: &Node{},
+						},
+					},
+					sell: &Node{
+						Price:  10,
+						Orders: []*Order{},
+						Left: &Node{
+							Price: 9,
+							Orders: []*Order{
+								{
+									Price:     9,
+									ID:        "bar",
+									Side:      "sell",
+									Filled:    0,
+									Open:      10,
+									AccountID: "bar@test.com",
+									Kind:      "market",
+									History:   make([]Match, 0),
+								},
+								{
+									Price:     9,
+									ID:        "baz",
+									Side:      "sell",
+									Filled:    0,
+									Open:      10,
+									AccountID: "baz@test.com",
+									Kind:      "market",
+									History:   make([]Match, 0),
+								},
+								{
+									Price:     9,
+									ID:        "baz",
+									Side:      "sell",
+									Filled:    0,
+									Open:      10,
+									AccountID: "baz@test.com",
+									Kind:      "market",
+									History:   make([]Match, 0),
+								},
+							},
+						},
+						Right: &Node{},
+					},
+				},
+				acc:       acc,
+				fillorder: fillorder,
+				matches:   make(chan Match, 1000),
+				errs:      make(chan error, 1000),
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			go attemptFill(tt.args.book, tt.args.acc, fillorder, tt.args.matches, tt.args.errs)
+			go AttemptFill(tt.args.book, tt.args.acc, fillorder, tt.args.matches, tt.args.errs)
 			got := <-tt.args.matches
-			fmt.Printf("got: %v\n", got)
-			fmt.Printf("tt.args.book: %v\n", tt.args.book)
-			fmt.Printf("tt.args.book.buy.FindMax(): %v\n", tt.args.book.buy.FindMax())
-			fmt.Printf("tt.args.book.sell.FindMin(): %v\n", tt.args.book.sell.FindMin())
+			t.Logf("[got]: %+v", got)
 		})
 	}
 }
