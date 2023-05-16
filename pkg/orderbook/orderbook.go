@@ -292,7 +292,12 @@ func greedy(
 }
 
 // MatchOrders is an alternative approach to order matching that
-// works by aligning two opposing sorted slices of Orders.
+// works by aligning two opposing sorted slices of Orders then
+// iterating through them to generate matches.
+// * It generates multiple matches for a buy order until all
+// matching sell options are exhausted,
+// * When it exhausts all f it ratchets up the buy index again and finds all matching
+// orders.
 func MatchOrders(buyOrders []Order, sellOrders []Order) []Match {
 	sort.Slice(buyOrders, func(i, j int) bool {
 		return buyOrders[i].Price > buyOrders[j].Price

@@ -3,6 +3,7 @@ package orderbook
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 	"testing"
@@ -322,26 +323,33 @@ func TestAttemptFill(t *testing.T) {
 }
 
 func TestMatchOrders(t *testing.T) {
-	buy, sell := newTestOrders(t, 1000)
+	buy, sell := newTestOrders(1000)
 	got := MatchOrders(buy, sell)
 	for _, match := range got {
 		t.Logf("\nmatch: [buy] %+v\n [sell] %+v\n", match.Buy, match.Sell)
 	}
 }
 
-func newTestOrders(t *testing.T, count int) (buyOrders []Order, sellOrders []Order) {
+func BenchmarkMatchOrder(b *testing.B) {
+	buy, sell := newTestOrders(b.N)
+	got := MatchOrders(buy, sell)
+	fmt.Printf("got #: %v\n", len(got))
+}
+
+func newTestOrders(count int) (buyOrders []Order, sellOrders []Order) {
+	log.Printf("count %d", count)
 	rand.Seed(time.Now().UnixNano())
 
-	min := 100
-	max := 10000
+	var minPrice, maxPrice = 100, 10_000
+	var minOpen, maxOpen = 10, 1_000_000
 
 	for i := 0; i < count; i++ {
 		o := Order{
 			ID:        fmt.Sprintf("%d", i),
 			AccountID: "", // TODO: add a random account owner
 			Kind:      "market",
-			Price:     uint64(rand.Intn(max-min) + min),
-			Open:      uint64(rand.Intn(max-min) + min),
+			Price:     uint64(rand.Intn(maxPrice-minPrice) + minPrice),
+			Open:      uint64(rand.Intn(maxOpen-minOpen) + minOpen),
 			Filled:    0,
 			History:   []Match{}, // history should be nil
 		}
