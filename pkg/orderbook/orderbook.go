@@ -291,12 +291,9 @@ func greedy(
 	matchCh <- *match
 }
 
-// TODO: write another set of tests using MatchOrders instead and then benchmark them.
-//
 // MatchOrders is an alternative approach to order matching that
 // works by aligning two opposing sorted slices of Orders.
-func MatchOrders(buyOrders []Order, sellOrders []Order) []Order {
-	// Sort the orders by price
+func MatchOrders(buyOrders []Order, sellOrders []Order) []Match {
 	sort.Slice(buyOrders, func(i, j int) bool {
 		return buyOrders[i].Price > buyOrders[j].Price
 	})
@@ -307,19 +304,18 @@ func MatchOrders(buyOrders []Order, sellOrders []Order) []Order {
 	// Initialize the index variables
 	buyIndex := 0
 	sellIndex := 0
-	var filledOrders []Order
+	var matches []Match
 
 	// Loop until there are no more Sell orders left
 	for sellIndex < len(sellOrders) {
 		// Check if the current Buy order matches the current Sell order
 		if buyOrders[buyIndex].Price >= sellOrders[sellIndex].Price {
-			// Fill the Buy order with the Sell order
-			filledOrder := Order{
-				// Buyer: buyOrders[buyIndex].Buyer,
-				// Seller: sellOrders[sellIndex].Seller,
-				Price: sellOrders[sellIndex].Price,
+			// Create a Match of the Buy and Sell side
+			m := Match{
+				Buy:  &buyOrders[buyIndex],
+				Sell: &sellOrders[sellIndex],
 			}
-			filledOrders = append(filledOrders, filledOrder)
+			matches = append(matches, m)
 			// Increment the Sell order index
 			sellIndex++
 		} else {
@@ -333,5 +329,5 @@ func MatchOrders(buyOrders []Order, sellOrders []Order) []Order {
 	}
 
 	// Return the list of filled orders
-	return filledOrders
+	return matches
 }

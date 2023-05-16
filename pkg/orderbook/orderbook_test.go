@@ -320,3 +320,41 @@ func TestAttemptFill(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchOrders(t *testing.T) {
+	buy, sell := newTestOrders(t, 1000)
+	got := MatchOrders(buy, sell)
+	for _, match := range got {
+		t.Logf("\nmatch: [buy] %+v\n [sell] %+v\n", match.Buy, match.Sell)
+	}
+}
+
+func newTestOrders(t *testing.T, count int) (buyOrders []Order, sellOrders []Order) {
+	rand.Seed(time.Now().UnixNano())
+
+	min := 100
+	max := 10000
+
+	for i := 0; i < count; i++ {
+		o := Order{
+			ID:        fmt.Sprintf("%d", i),
+			AccountID: "", // TODO: add a random account owner
+			Kind:      "market",
+			Price:     uint64(rand.Intn(max-min) + min),
+			Open:      uint64(rand.Intn(max-min) + min),
+			Filled:    0,
+			History:   []Match{}, // history should be nil
+		}
+
+		// half buy, half sell orders
+		if i%2 == 0 {
+			o.Side = "buy"
+			buyOrders = append(buyOrders, o)
+		} else {
+			o.Side = "sell"
+			sellOrders = append(sellOrders, o)
+		}
+	}
+
+	return
+}
