@@ -143,16 +143,9 @@ func AttemptFill(
 ) {
 	for {
 		book.Lock()
-
-		if fillorder.Filled < fillorder.Open {
-			log.Printf("NOT FILLED")
-		} else {
-			log.Printf("FILLED: %+v", fillorder)
-		}
-
 		if fillorder.Side == "buy" {
-			// match to sell
-			log.Printf("[buy order]: %+v", fillorder)
+			wanted := fillorder.Open - fillorder.Filled
+
 			low := book.sell.FindMin()
 			if len(low.Orders) == 0 {
 				book.Unlock()
@@ -162,8 +155,6 @@ func AttemptFill(
 			bookorder := low.Orders[0] // select highest time priority by first price-valid match
 			available := bookorder.Open - bookorder.Filled
 
-			wanted := fillorder.Open - fillorder.Filled
-
 			match := &Match{
 				Buy:  fillorder,
 				Sell: bookorder,
@@ -172,15 +163,17 @@ func AttemptFill(
 			switch {
 			case wanted > available:
 				greedy(book, acc, match, matches, errs)
+				book.Unlock()
+				continue
 			case wanted < available:
 				humble(book, acc, match, matches, errs)
+				book.Unlock()
+				return
 			default:
 				exact(book, acc, match, matches, errs)
+				book.Unlock()
+				return
 			}
-
-		} else {
-			// sell
-			log.Printf("[sell order]: %+v", fillorder)
 		}
 
 		book.Unlock()
@@ -195,18 +188,23 @@ func AttemptFill(
 func exact(book *Book, acc accounts.AccountManager, match *Match, matchCh chan Match, errs chan error) {
 	available := match.Sell.Open - match.Sell.Filled
 	wanted := match.Buy.Open - match.Buy.Filled
+
+	if wanted == 0 {
+		matchCh <- *match
+		return
+	}
+
 	if available != wanted {
 		log.Fatalf("should not happen, this is a bug - match: %+v", match)
 	}
 
 	amount := float64((available * match.Sell.Price) / 100)
 
-	balances, err := acc.Tx(match.Buy.AccountID, match.Sell.AccountID, amount)
+	_, err := acc.Tx(match.Buy.AccountID, match.Sell.AccountID, amount)
 	if err != nil {
 		errs <- fmt.Errorf("failed to transfer: %v", err)
 		return
 	}
-	log.Printf("balances: %+v", balances)
 
 	match.Buy.Filled += available
 	match.Sell.Filled += available
@@ -216,9 +214,11 @@ func exact(book *Book, acc accounts.AccountManager, match *Match, matchCh chan M
 
 	if ok := book.buy.RemoveOrder(match.Buy); !ok {
 		errs <- fmt.Errorf("failed to remove over from tree %+v", match.Buy)
+		log.Fatalf("failed to remove order from tree %+v", match.Buy)
 	}
 	if ok := book.sell.RemoveOrder(match.Sell); !ok {
 		errs <- fmt.Errorf("failed to remove over from tree %+v", match.Sell)
+		log.Fatalf("failed to remove order from tree %+v", match.Sell)
 	}
 
 	matchCh <- *match

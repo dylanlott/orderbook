@@ -238,6 +238,79 @@ func TestAttemptFill(t *testing.T) {
 				errs:      make(chan error, 1000),
 			},
 		},
+		{
+			name: "should fill humble",
+			args: args{
+				book: &Book{
+					buy: &Node{
+						Price:  10,
+						Orders: []*Order{},
+						Left:   &Node{},
+						Right: &Node{
+							Price: 11,
+							Orders: []*Order{
+								{
+									Price:     11,
+									ID:        "foo",
+									Side:      "buy",
+									Filled:    0,
+									Open:      20,
+									AccountID: "foo@test.com",
+									Kind:      "market",
+									History:   make([]Match, 0),
+								},
+							},
+							Left:  &Node{},
+							Right: &Node{},
+						},
+					},
+					sell: &Node{
+						Price:  10,
+						Orders: []*Order{},
+						Left: &Node{
+							Price: 9,
+							Orders: []*Order{
+								{
+									Price:     9,
+									ID:        "bar",
+									Side:      "sell",
+									Filled:    0,
+									Open:      10,
+									AccountID: "bar@test.com",
+									Kind:      "market",
+									History:   make([]Match, 0),
+								},
+								{
+									Price:     9,
+									ID:        "baz",
+									Side:      "sell",
+									Filled:    0,
+									Open:      10,
+									AccountID: "baz@test.com",
+									Kind:      "market",
+									History:   make([]Match, 0),
+								},
+								{
+									Price:     9,
+									ID:        "baz",
+									Side:      "sell",
+									Filled:    0,
+									Open:      10,
+									AccountID: "baz@test.com",
+									Kind:      "market",
+									History:   make([]Match, 0),
+								},
+							},
+						},
+						Right: &Node{},
+					},
+				},
+				acc:       acc,
+				fillorder: fillorder,
+				matches:   make(chan Match, 1000),
+				errs:      make(chan error, 1000),
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

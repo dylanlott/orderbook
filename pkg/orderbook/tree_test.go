@@ -45,12 +45,12 @@ func TestList(t *testing.T) {
 }
 
 func seedRootTree(root *Node) {
-	order1 := &Order{ID: "1", Price: 5}
-	order2 := &Order{ID: "2", Price: 15}
-	order3 := &Order{ID: "3", Price: 8}
-	order4 := &Order{ID: "4", Price: 12}
-	order5 := &Order{ID: "5", Price: 12}
-	order6 := &Order{ID: "6", Price: 12}
+	order1 := &Order{ID: "1", Price: 5, Side: "buy"}
+	order2 := &Order{ID: "2", Price: 15, Side: "buy"}
+	order3 := &Order{ID: "3", Price: 8, Side: "buy"}
+	order4 := &Order{ID: "4", Price: 12, Side: "buy"}
+	order5 := &Order{ID: "5", Price: 12, Side: "buy"}
+	order6 := &Order{ID: "6", Price: 12, Side: "buy"}
 
 	root.Insert(order1)
 	root.Insert(order2)
