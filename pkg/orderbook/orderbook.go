@@ -56,19 +56,17 @@ type Match struct {
 }
 
 // Run starts looping the MatchOrders function.
-func Run(ctx context.Context) {
+func Run(ctx context.Context) error {
 	var buy, sell []Order
 	accts := &accounts.InMemoryManager{}
 
-	go func() {
-		for {
-			matches := MatchOrders(accts, buy, sell)
-			for _, match := range matches {
-				log.Printf("%+v", match)
-				// feed to ouptut
-			}
+	for {
+		matches := MatchOrders(accts, buy, sell)
+		for _, match := range matches {
+			log.Printf("%+v", match)
+			// feed to ouptut
 		}
-	}()
+	}
 }
 
 // MatchOrders is an alternative approach to order matching that

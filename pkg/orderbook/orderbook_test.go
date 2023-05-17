@@ -349,7 +349,7 @@ func BenchmarkAttemptFill(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		w := OpWrite{
-			Order:  newOrder(fmt.Sprintf("%d", i), ""),
+			Order:  newRandOrder(fmt.Sprintf("%d", i), ""),
 			Result: make(chan WriteResult),
 		}
 		go func() {
@@ -394,7 +394,7 @@ func newTestOrders(count int) (buyOrders []Order, sellOrders []Order) {
 	return
 }
 
-func newOrder(id, account string) Order {
+func newRandOrder(id, account string) Order {
 	rand.Seed(time.Now().UnixNano())
 
 	var minPrice, maxPrice = 100, 10_000

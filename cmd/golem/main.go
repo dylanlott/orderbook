@@ -17,10 +17,10 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "golem",
 		Short: "an order matching engine in Go",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			motd()
 			ctx := context.Background()
-			orderbook.Run(ctx)
+			return orderbook.Run(ctx)
 		},
 	}
 
