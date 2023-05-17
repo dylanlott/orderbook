@@ -5,10 +5,10 @@ package orderbook
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"sort"
 
-	"github.com/sasha-s/go-deadlock"
+	"github.com/dylanlott/orderbook/pkg/accounts"
 )
 
 // OpWrite inserts an order into the Book
@@ -55,19 +55,20 @@ type Match struct {
 	Total    uint64 // total = price * quantity
 }
 
-// Book holds buy and sell side orders. OpRead and OpWrite are applied to
-// to the book. Buy and sell side orders are binary trees of order lists.
-type Book struct {
-	// sync.RWMutex
-	deadlock.Mutex
-
-	buy  *Node
-	sell *Node
-}
-
 // Run starts looping the MatchOrders function.
-func Run(ctx context.Context) error {
-	return fmt.Errorf("not impl")
+func Run(ctx context.Context) {
+	var buy, sell []Order
+	accts := &accounts.InMemoryManager{}
+
+	go func() {
+		for {
+			matches := MatchOrders(accts, buy, sell)
+			for _, match := range matches {
+				log.Printf("%+v", match)
+				// feed to ouptut
+			}
+		}
+	}()
 }
 
 // MatchOrders is an alternative approach to order matching that
@@ -77,7 +78,7 @@ func Run(ctx context.Context) error {
 // matching sell options are exhausted,
 // * When it exhausts all f it ratchets up the buy index again and finds all matching
 // orders.
-func MatchOrders(buyOrders []Order, sellOrders []Order) []Match {
+func MatchOrders(accts accounts.AccountManager, buyOrders []Order, sellOrders []Order) []Match {
 	sort.Slice(buyOrders, func(i, j int) bool {
 		return buyOrders[i].Price > buyOrders[j].Price
 	})

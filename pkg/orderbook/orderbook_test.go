@@ -324,7 +324,7 @@ func TestAttemptFill(t *testing.T) {
 
 func TestMatchOrders(t *testing.T) {
 	buy, sell := newTestOrders(1000)
-	got := MatchOrders(buy, sell)
+	got := MatchOrders(&accounts.InMemoryManager{}, buy, sell)
 	for _, match := range got {
 		t.Logf("\nmatch: [buy] %+v\n [sell] %+v\n", match.Buy, match.Sell)
 	}
@@ -332,7 +332,7 @@ func TestMatchOrders(t *testing.T) {
 
 func BenchmarkMatchOrder(b *testing.B) {
 	buy, sell := newTestOrders(b.N)
-	got := MatchOrders(buy, sell)
+	got := MatchOrders(&accounts.InMemoryManager{}, buy, sell)
 	fmt.Printf("got #: %v\n", len(got))
 }
 

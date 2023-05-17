@@ -6,7 +6,18 @@ import (
 	"log"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
+	"github.com/sasha-s/go-deadlock"
 )
+
+// Book holds buy and sell side orders. OpRead and OpWrite are applied to
+// to the book. Buy and sell side orders are binary trees of order lists.
+type Book struct {
+	// sync.RWMutex
+	deadlock.Mutex
+
+	buy  *Node
+	sell *Node
+}
 
 // Start sets up the order book and wraps it in a read and write channel for
 // receiving operations and output, match, and errs channels for
