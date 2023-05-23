@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dylanlott/orderbook/pkg/orderbook"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/dylanlott/orderbook/pkg/accounts"
+	"github.com/dylanlott/orderbook/pkg/orderbook"
+	"github.com/dylanlott/orderbook/pkg/server"
 )
 
 // LatestOrderbook holds the global state of the book as the
@@ -20,7 +23,15 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			motd()
 			ctx := context.Background()
-			return orderbook.Run(ctx)
+			accts := &accounts.InMemoryManager{}
+			in := make(chan orderbook.Order)
+			out := make(chan *orderbook.Match)
+			status := make(chan []orderbook.Order)
+
+			go orderbook.Run(ctx, in, out, status)
+
+			engine := server.NewServer(accts, in, out, status)
+			return engine.Run()
 		},
 	}
 
