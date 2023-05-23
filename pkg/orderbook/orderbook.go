@@ -14,18 +14,6 @@ import (
 
 var delay time.Duration = time.Second * 1
 
-// OpWrite inserts an order into the Book
-type OpWrite struct {
-	Order  Order
-	Result chan WriteResult
-}
-
-// WriteResult is returned as the result of an OpWrite.
-type WriteResult struct {
-	Order Order
-	Err   error
-}
-
 // FillResult contains the buy and sell order that were
 // matched and filled. FillResult is only created after
 // everything has been committed to state.
@@ -58,12 +46,23 @@ type Match struct {
 	Total    uint64 // total = price * quantity
 }
 
+// Orderbook is the core interface of the library.
+// * It exposes the core filling algorithm of the engine.
+// This algorithm should be able to be swapped out eventually
+// so the module should be designed accordingly.
 type Orderbook interface {
 	Match(buy []Order, sell []Order) []Match
 }
 
 // Run starts looping the MatchOrders function.
-func Run(ctx context.Context, accounts accounts.AccountManager, in chan Order, out chan *Match, status chan []Order) {
+func Run(
+	ctx context.Context,
+	accounts accounts.AccountManager,
+	in chan Order,
+	out chan *Match,
+	status chan []Order,
+) {
+	// NB: buy and sell are not accessible anywhere but here for safety.
 	var buy, sell []Order
 	handleMatches(ctx, accounts, buy, sell, in, out, status)
 }

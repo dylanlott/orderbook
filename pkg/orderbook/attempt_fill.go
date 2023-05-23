@@ -13,6 +13,18 @@ import (
 	"github.com/sasha-s/go-deadlock"
 )
 
+// OpWrite inserts an order into the Book
+type OpWrite struct {
+	Order  Order
+	Result chan WriteResult
+}
+
+// WriteResult is returned as the result of an OpWrite.
+type WriteResult struct {
+	Order Order
+	Err   error
+}
+
 // Book holds buy and sell side orders. OpRead and OpWrite are applied to
 // to the book. Buy and sell side orders are binary trees of order lists.
 type Book struct {
