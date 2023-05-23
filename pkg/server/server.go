@@ -5,6 +5,7 @@ import (
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
 	"github.com/dylanlott/orderbook/pkg/orderbook"
+
 	"github.com/labstack/echo/v4"
 )
 
@@ -12,8 +13,11 @@ import (
 var defaultPort = ":1323"
 
 type Engine struct {
-	srv   *echo.Echo
-	state []orderbook.Order
+	srv    *echo.Echo
+	state  []orderbook.Order
+	in     chan orderbook.Order
+	out    chan *orderbook.Match
+	status chan []orderbook.Order
 }
 
 // NewServer returns a new server.Engine that wires together
@@ -25,11 +29,24 @@ func NewServer(
 	out chan *orderbook.Match,
 	status chan []orderbook.Order,
 ) *Engine {
-	engine := &Engine{}
+	engine := &Engine{
+		in:     in,
+		out:    out,
+		status: status,
+	}
 
 	e := echo.New()
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Hello, World!")
+	})
+	e.GET("/orders", func(c echo.Context) error {
+		return c.String(http.StatusInternalServerError, "not impl!")
+	})
+	e.POST("/orders", func(c echo.Context) error {
+		return c.String(http.StatusInternalServerError, "not impl!")
+	})
+	e.DELETE("/orders", func(c echo.Context) error {
+		return c.String(http.StatusInternalServerError, "not impl!")
 	})
 	engine.srv = e
 

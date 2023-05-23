@@ -28,7 +28,7 @@ func main() {
 			out := make(chan *orderbook.Match)
 			status := make(chan []orderbook.Order)
 
-			go orderbook.Run(ctx, in, out, status)
+			go orderbook.Run(ctx, accts, in, out, status)
 
 			engine := server.NewServer(accts, in, out, status)
 			return engine.Run()

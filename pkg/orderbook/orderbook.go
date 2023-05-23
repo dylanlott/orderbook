@@ -60,15 +60,15 @@ type Orderbook interface {
 }
 
 // Run starts looping the MatchOrders function.
-func Run(ctx context.Context, in chan Order, out chan *Match, status chan []Order) {
-	accts := &accounts.InMemoryManager{}
+func Run(ctx context.Context, accounts accounts.AccountManager, in chan Order, out chan *Match, status chan []Order) {
 	var buy, sell []Order
-	handleMatches(accts, buy, sell, in, out, status)
+	handleMatches(ctx, accounts, buy, sell, in, out, status)
 }
 
 // handleMatches is a blocking function that handles the matches.
 // It's meant to be called and held open while it matches orders.
 func handleMatches(
+	ctx context.Context,
 	accts accounts.AccountManager,
 	buy, sell []Order,
 	in chan Order,
