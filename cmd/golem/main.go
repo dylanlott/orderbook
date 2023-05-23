@@ -22,15 +22,25 @@ func main() {
 		Short: "an order matching engine in Go",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			motd()
+
+			// create a context
 			ctx := context.Background()
+
+			// setup an accounts manager
 			accts := &accounts.InMemoryManager{}
+
+			// setup channels for wrapping our market
 			in := make(chan orderbook.Order)
 			out := make(chan *orderbook.Match)
 			status := make(chan []orderbook.Order)
 
+			// Run the book
 			go orderbook.Run(ctx, accts, in, out, status)
 
+			// start the server to bolt up to the engine
 			engine := server.NewServer(accts, in, out, status)
+
+			// run the server
 			return engine.Run()
 		},
 	}
@@ -46,16 +56,12 @@ func main() {
 
 func motd() {
 	fmt.Printf(`
-									$$\                         
-									$$ |                        
-				 $$$$$$\   $$$$$$\  $$ | $$$$$$\  $$$$$$\$$$$\  
-				$$  __$$\ $$  __$$\ $$ |$$  __$$\ $$  _$$  _$$\ 
-				$$ /  $$ |$$ /  $$ |$$ |$$$$$$$$ |$$ / $$ / $$ |
-				$$ |  $$ |$$ |  $$ |$$ |$$   ____|$$ | $$ | $$ |
-				\$$$$$$$ |\$$$$$$  |$$ |\$$$$$$$\ $$ | $$ | $$ |
-				 \____$$ | \______/ \__| \_______|\__| \__| \__|
-				$$\   $$ |                                      
-				\$$$$$$  |                                      
-				 \______/                                       
-			`)
+===================================================
+||  ██████   ██████  ██      ███████ ███    ███  ||
+|| ██       ██    ██ ██      ██      ████  ████  ||
+|| ██   ███ ██    ██ ██      █████   ██ ████ ██  ||
+|| ██    ██ ██    ██ ██      ██      ██  ██  ██  ||
+||  ██████   ██████  ███████ ███████ ██      ██  ||
+===================================================
+`)
 }

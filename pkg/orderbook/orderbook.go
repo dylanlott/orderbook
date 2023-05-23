@@ -14,15 +14,6 @@ import (
 
 var delay time.Duration = time.Second * 1
 
-// FillResult contains the buy and sell order that were
-// matched and filled. FillResult is only created after
-// everything has been committed to state.
-type FillResult struct {
-	Buy    *Order
-	Sell   *Order
-	Filled uint64
-}
-
 // Order is a struct for representing a simple order in the books.
 type Order struct {
 	ID        string

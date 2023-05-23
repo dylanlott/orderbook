@@ -19,6 +19,15 @@ type OpWrite struct {
 	Result chan WriteResult
 }
 
+// FillResult contains the buy and sell order that were
+// matched and filled. FillResult is only created after
+// everything has been committed to state.
+type FillResult struct {
+	Buy    *Order
+	Sell   *Order
+	Filled uint64
+}
+
 // WriteResult is returned as the result of an OpWrite.
 type WriteResult struct {
 	Order Order
