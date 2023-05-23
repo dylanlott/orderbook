@@ -6,3 +6,6 @@ build-docker:
 
 run-docker: build-docker
 	docker run -it -p 1323:1323 golem
+
+deploy: test
+	./deploy.sh

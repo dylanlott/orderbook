@@ -7,9 +7,12 @@ import (
 	"context"
 	"log"
 	"sort"
+	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
 )
+
+var delay time.Duration = time.Second * 1
 
 // OpWrite inserts an order into the Book
 type OpWrite struct {
@@ -84,6 +87,7 @@ func handleMatches(
 		matches := MatchOrders(accts, buy, sell)
 		for _, match := range matches {
 			log.Printf("%+v", match)
+			time.Sleep(delay)
 			// feed to ouptut
 		}
 	}
