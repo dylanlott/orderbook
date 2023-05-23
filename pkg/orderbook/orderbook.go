@@ -55,12 +55,32 @@ type Match struct {
 	Total    uint64 // total = price * quantity
 }
 
-// Run starts looping the MatchOrders function.
-func Run(ctx context.Context) error {
-	var buy, sell []Order
-	accts := &accounts.InMemoryManager{}
+type Orderbook interface {
+	Match(buy []Order, sell []Order) []Match
+}
 
+// Run starts looping the MatchOrders function.
+func Run(ctx context.Context, in chan Order, out chan *Match, status chan []Order) {
+	accts := &accounts.InMemoryManager{}
+	var buy, sell []Order
+	handleMatches(accts, buy, sell, in, out, status)
+}
+
+// handleMatches is a blocking function that handles the matches.
+// It's meant to be called and held open while it matches orders.
+func handleMatches(
+	accts accounts.AccountManager,
+	buy, sell []Order,
+	in chan Order,
+	out chan *Match,
+	status chan []Order,
+) {
 	for {
+		orderlist := []Order{}
+		orderlist = append(orderlist, buy...)
+		orderlist = append(orderlist, sell...)
+		status <- orderlist
+
 		matches := MatchOrders(accts, buy, sell)
 		for _, match := range matches {
 			log.Printf("%+v", match)
