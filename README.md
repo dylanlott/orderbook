@@ -30,3 +30,7 @@ Bolt or BadgerDB are being explored currently for storing orders in a simple on-
 ## Golem CLI
 
 Golem is the CLI client written in Viper that starts the orderbook. Located in `cmd/golem` it currently has only the root command which starts the server. Viper handles the configuration of the application by loading in the `-config` file path as well as a `$HOME/.golem.yml` config file.
+
+## Deployment
+
+`./deploy.sh` will deploy the application to the remote server. It requires the device to have proper SSH keys to carry out the rsync copy. It copies over the directory and builds the docker image on the remote, and then runs that built docker image.
