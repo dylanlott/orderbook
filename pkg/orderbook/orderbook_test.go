@@ -14,16 +14,12 @@ import (
 
 func TestMatchOrders(t *testing.T) {
 	buy, sell := newTestOrders(1000)
-	got := MatchOrders(&accounts.InMemoryManager{}, buy, sell)
-	for _, match := range got {
-		t.Logf("\nmatch: [buy] %+v\n [sell] %+v\n", match.Buy, match.Sell)
-	}
+	_ = MatchOrders(&accounts.InMemoryManager{}, buy, sell)
 }
 
 func BenchmarkMatchOrders(b *testing.B) {
 	buy, sell := newTestOrders(b.N)
-	got := MatchOrders(&accounts.InMemoryManager{}, buy, sell)
-	fmt.Printf("got #: %v\n", len(got))
+	_ = MatchOrders(&accounts.InMemoryManager{}, buy, sell)
 }
 
 func BenchmarkAttemptFill(b *testing.B) {
