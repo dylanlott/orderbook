@@ -13,8 +13,6 @@ import (
 var numOps int = 1000
 var bufferSize int = 1000
 
-var lastUpdate *Book
-
 func TestListen(t *testing.T) {
 	ctx := context.Background()
 
@@ -36,7 +34,6 @@ func TestListen(t *testing.T) {
 	go func() {
 		for update := range out {
 			log.Printf("[update]: %+v", update)
-			lastUpdate = update
 		}
 	}()
 
@@ -98,6 +95,4 @@ func TestListen(t *testing.T) {
 	}
 
 	wg.Wait()
-
-	t.Logf("final book: %+v", lastUpdate)
 }
