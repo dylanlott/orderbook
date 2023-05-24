@@ -1,5 +1,5 @@
 test:	
-	go test -count 1 -v ./pkg/... 
+	go test -race -count 1 -v ./pkg/... 
 
 build-docker:
 	docker build -t golem .
