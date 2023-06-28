@@ -12,6 +12,37 @@ The final implementation that applies the design points learned from the previou
 
 ## Architecture
 
+```mermaid
+---
+title: Orderbook
+---
+flowchart LR
+    subgraph golem[golem]
+        server[server]
+
+        subgraph orderbook[orderbook]
+            buy[buy orders]
+            sell[sell orders]
+            accounts
+        end
+
+        server -- POST /ORDERS --> in
+        server -- GET /ORDERS --> status[status monitor]
+
+        in --> orderbook
+        orderbook --> status[status monitor]
+        orderbook -- matches --> out
+        out --> history
+
+        subgraph engine[engine]
+            in
+            out
+            status
+        end
+
+    end
+```
+
 The two main packages are `accounts` and `orderbook`. Accounts holds an interface and an in-memory adapter for testing and use by other modules. Persistence via some KV store is on the roadmap for this project.
 
 Orders are handled in the following process
