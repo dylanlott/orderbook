@@ -73,7 +73,7 @@ func newTestAccountManager(t *testing.T, num int) (accounts.AccountManager, []st
 // price between minPrice and maxPrice, an open quantity between minOpen
 // and maxOpen, an equal chance to be owned by foo or bar,
 // and with an even chance of being a buy or sell order.
-func newTestOrders(count int) (buyOrders []Order, sellOrders []Order) {
+func newTestOrders(count int) (buyOrders, sellOrders []*Order) {
 	log.Printf("count %d", count)
 	rand.Seed(time.Now().UnixNano())
 
@@ -81,7 +81,7 @@ func newTestOrders(count int) (buyOrders []Order, sellOrders []Order) {
 	var minOpen, maxOpen = 10, 1_000_000
 
 	for i := 0; i < count; i++ {
-		o := Order{
+		o := &Order{
 			ID:      fmt.Sprintf("%d", i),
 			Kind:    "market",
 			Price:   uint64(rand.Intn(maxPrice-minPrice) + minPrice),
@@ -133,9 +133,9 @@ var numTestOrders = 10_000_000
 var numTestAccounts = 1_000_000
 
 func TestRunLoad(t *testing.T) {
-	in := make(chan Order, 1)
+	in := make(chan *Order, 1)
 	out := make(chan *Match, 1)
-	status := make(chan []Order, 1)
+	status := make(chan []*Order, 1)
 
 	// Generate default random accounts for testing
 	accts, ids := newTestAccountManager(t, numTestAccounts)

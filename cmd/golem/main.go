@@ -30,9 +30,9 @@ func main() {
 			accts := &accounts.InMemoryManager{}
 
 			// setup channels for wrapping our market
-			in := make(chan orderbook.Order)
+			in := make(chan *orderbook.Order)
 			out := make(chan *orderbook.Match)
-			status := make(chan []orderbook.Order)
+			status := make(chan []*orderbook.Order)
 
 			// Run the book
 			go orderbook.Run(ctx, accts, in, out, status)

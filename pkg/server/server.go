@@ -14,10 +14,10 @@ var defaultPort = ":1323"
 
 type Engine struct {
 	srv    *echo.Echo
-	state  []orderbook.Order
-	in     chan orderbook.Order
+	state  []*orderbook.Order
+	in     chan *orderbook.Order
 	out    chan *orderbook.Match
-	status chan []orderbook.Order
+	status chan []*orderbook.Order
 }
 
 // NewServer returns a new server.Engine that wires together
@@ -25,9 +25,9 @@ type Engine struct {
 // startingx
 func NewServer(
 	accounts accounts.AccountManager,
-	in chan orderbook.Order,
+	in chan *orderbook.Order,
 	out chan *orderbook.Match,
-	status chan []orderbook.Order,
+	status chan []*orderbook.Order,
 ) *Engine {
 	engine := &Engine{
 		in:     in,
@@ -52,7 +52,7 @@ func NewServer(
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 		e.Logger.Infof("order received: %+v", o)
-		engine.in <- *o
+		engine.in <- o
 		return nil
 	})
 
@@ -75,8 +75,8 @@ func (eng *Engine) Run() error {
 
 // handleState updates the Engine's view of the Orderbooks
 // so that it can be fetched by the server.
-func handleState(e *Engine, status chan []orderbook.Order) {
-	go func(e *Engine, status chan []orderbook.Order) {
+func handleState(e *Engine, status chan []*orderbook.Order) {
+	go func(e *Engine, status chan []*orderbook.Order) {
 		for stats := range status {
 			e.state = stats
 			e.srv.Logger.Debugf("state: %+v\n", e.state)

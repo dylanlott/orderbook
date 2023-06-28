@@ -50,13 +50,12 @@ type Orderbook interface {
 func Run(
 	ctx context.Context,
 	accounts accounts.AccountManager,
-	in chan Order,
+	in chan *Order,
 	out chan *Match,
-	status chan []Order,
+	status chan []*Order,
 ) {
 	// NB: buy and sell are not accessible anywhere but here for safety.
-	var buy, sell []Order
-
+	var buy, sell []*Order
 	handleMatches(ctx, accounts, buy, sell, in, out, status)
 }
 
@@ -65,10 +64,10 @@ func Run(
 func handleMatches(
 	ctx context.Context,
 	accts accounts.AccountManager,
-	buy, sell []Order,
-	in chan Order,
+	buy, sell []*Order,
+	in chan *Order,
 	out chan *Match,
-	status chan []Order,
+	status chan []*Order,
 ) {
 	for {
 		// feed off the orders that accumulated since the last loop
@@ -80,7 +79,7 @@ func handleMatches(
 			}
 		}
 		// create the orderlist for state updates
-		orderlist := []Order{}
+		orderlist := []*Order{}
 		orderlist = append(orderlist, buy...)
 		orderlist = append(orderlist, sell...)
 		status <- orderlist
@@ -100,7 +99,7 @@ func handleMatches(
 // matching sell options are exhausted,
 // * When it exhausts all f it ratchets up the buy index again and finds all matching
 // orders.
-func MatchOrders(accts accounts.AccountManager, buyOrders []Order, sellOrders []Order) []Match {
+func MatchOrders(accts accounts.AccountManager, buyOrders []*Order, sellOrders []*Order) []Match {
 	sort.Slice(buyOrders, func(i, j int) bool {
 		return buyOrders[i].Price > buyOrders[j].Price
 	})
@@ -118,8 +117,8 @@ func MatchOrders(accts accounts.AccountManager, buyOrders []Order, sellOrders []
 		// Check if the current Buy order matches the current Sell order
 		if buyOrders[buyIndex].Price >= sellOrders[sellIndex].Price {
 			// Create a match and add it to the matches
-			sell := &sellOrders[sellIndex]
-			buy := &buyOrders[buyIndex]
+			sell := sellOrders[sellIndex]
+			buy := buyOrders[buyIndex]
 			m := Match{
 				Buy:   buy,
 				Sell:  sell,
