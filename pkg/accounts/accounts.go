@@ -16,7 +16,7 @@ type AccountManager interface {
 	Transaction
 
 	Get(id string) (Account, error)
-	Create(id string, acct Account) (Account, error)
+	Create(id string, balance float64) (Account, error)
 	Delete(id string) error
 }
 
@@ -52,6 +52,16 @@ type InMemoryManager struct {
 	Accounts map[string]*UserAccount
 }
 
+func NewAccountManager(path string) AccountManager {
+	if path == "" {
+		return &InMemoryManager{
+			Accounts: make(map[string]*UserAccount),
+		}
+	} else {
+		panic("todo: not impl")
+	}
+}
+
 // Get returns an account
 func (i *InMemoryManager) Get(id string) (Account, error) {
 	i.Lock()
@@ -63,10 +73,10 @@ func (i *InMemoryManager) Get(id string) (Account, error) {
 }
 
 // Create makes a new account
-func (i *InMemoryManager) Create(email string, account Account) (Account, error) {
+func (i *InMemoryManager) Create(email string, balance float64) (Account, error) {
 	a := &UserAccount{
 		Email:          email,
-		CurrentBalance: 0.0,
+		CurrentBalance: balance,
 	}
 	i.Lock()
 	defer i.Unlock()

@@ -37,14 +37,25 @@ func NewServer(
 
 	e := echo.New()
 	e.GET("/", func(c echo.Context) error {
-		return c.String(http.StatusOK, "Hello, World!")
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"name":    "orderbook",
+			"version": "0.1",
+		})
 	})
 	e.GET("/orders", func(c echo.Context) error {
-		return c.String(http.StatusInternalServerError, "not impl!")
+		return c.JSON(http.StatusOK, engine.state)
 	})
+
 	e.POST("/orders", func(c echo.Context) error {
-		return c.String(http.StatusInternalServerError, "not impl!")
+		o := new(orderbook.Order)
+		if err := c.Bind(o); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		e.Logger.Infof("order received: %+v", o)
+		engine.in <- *o
+		return nil
 	})
+
 	e.DELETE("/orders", func(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "not impl!")
 	})

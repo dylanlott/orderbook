@@ -3,6 +3,7 @@ module github.com/dylanlott/orderbook
 go 1.18
 
 require (
+	github.com/brianvoe/gofakeit/v6 v6.21.0
 	github.com/labstack/echo/v4 v4.10.2
 	github.com/matryer/is v1.4.0
 	github.com/sasha-s/go-deadlock v0.3.1

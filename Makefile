@@ -1,6 +1,12 @@
 test:	
 	go test -race -count 1 -v ./pkg/... 
 
+test-benchmark:
+	go test -benchtime=60s ./pkg/orderbook/...
+
+test-profile: 
+	go test -cpuprofile=prof.out ./pkg/orderbook/...
+
 build-docker:
 	docker build -t golem .
 

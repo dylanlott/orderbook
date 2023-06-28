@@ -5,7 +5,6 @@ package orderbook
 
 import (
 	"context"
-	"log"
 	"sort"
 	"time"
 
@@ -45,7 +44,9 @@ type Orderbook interface {
 	Match(buy []Order, sell []Order) []Match
 }
 
-// Run starts looping the MatchOrders function.
+// Run starts looping the MatchOrders function. It is a blocking function
+// and it is meant to completely own the buy and sell lists to prevent
+// external modification.
 func Run(
 	ctx context.Context,
 	accounts accounts.AccountManager,
@@ -55,6 +56,7 @@ func Run(
 ) {
 	// NB: buy and sell are not accessible anywhere but here for safety.
 	var buy, sell []Order
+
 	handleMatches(ctx, accounts, buy, sell, in, out, status)
 }
 
@@ -69,16 +71,24 @@ func handleMatches(
 	status chan []Order,
 ) {
 	for {
+		// feed off the orders that accumulated since the last loop
+		for o := range in {
+			if o.Side == "buy" {
+				buy = append(buy, o)
+			} else {
+				sell = append(sell, o)
+			}
+		}
+		// create the orderlist for state updates
 		orderlist := []Order{}
 		orderlist = append(orderlist, buy...)
 		orderlist = append(orderlist, sell...)
 		status <- orderlist
 
+		// generate a list of matches and output them
 		matches := MatchOrders(accts, buy, sell)
 		for _, match := range matches {
-			log.Printf("%+v", match)
-			time.Sleep(delay)
-			// feed to ouptut
+			out <- &match
 		}
 	}
 }
@@ -107,10 +117,13 @@ func MatchOrders(accts accounts.AccountManager, buyOrders []Order, sellOrders []
 	for sellIndex < len(sellOrders) {
 		// Check if the current Buy order matches the current Sell order
 		if buyOrders[buyIndex].Price >= sellOrders[sellIndex].Price {
-			// Create a Match of the Buy and Sell side
+			// Create a match and add it to the matches
+			sell := &sellOrders[sellIndex]
+			buy := &buyOrders[buyIndex]
 			m := Match{
-				Buy:  &buyOrders[buyIndex],
-				Sell: &sellOrders[sellIndex],
+				Buy:   buy,
+				Sell:  sell,
+				Price: sell.Price,
 			}
 			matches = append(matches, m)
 			// Increment the Sell order index
@@ -119,6 +132,7 @@ func MatchOrders(accts accounts.AccountManager, buyOrders []Order, sellOrders []
 			// Move on to the next Buy order
 			buyIndex++
 		}
+
 		// Check if there are no more Buy orders left
 		if buyIndex == len(buyOrders) {
 			break

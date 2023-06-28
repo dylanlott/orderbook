@@ -272,7 +272,7 @@ func greedy(
 var numOps = 10_000
 var bufferSize = 1000
 
-func TestRun(t *testing.T) {
+func TestAttemptFillRun(t *testing.T) {
 	ctx := context.Background()
 	wg := &sync.WaitGroup{}
 
