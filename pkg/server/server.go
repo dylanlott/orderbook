@@ -1,17 +1,24 @@
 package server
 
 import (
+	"fmt"
+	"log"
 	"net/http"
+	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
 	"github.com/dylanlott/orderbook/pkg/orderbook"
 
+	"github.com/VictoriaMetrics/metrics"
 	"github.com/labstack/echo/v4"
 )
 
-// defaultPort the app starts on
 var defaultPort = ":1323"
+var interval = time.Millisecond * 500
+var pushProcessMetrics = false
 
+// Engine is a fully-plumbed orderbook and account system
+// hooked up to an echo server with a metrics client plugged in.
 type Engine struct {
 	srv    *echo.Echo
 	state  []*orderbook.Order
@@ -35,18 +42,27 @@ func NewServer(
 		status: status,
 	}
 
+	err := metrics.InitPush("http://localhost:8428/write", interval, `label="orderbook"`, pushProcessMetrics)
+	if err != nil {
+		log.Fatalf("failed to connect to metrics platform: %+v", err)
+	}
+
 	e := echo.New()
+
+	e.Use(count)
+
 	e.GET("/", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]interface{}{
 			"name":    "orderbook",
 			"version": "0.1",
 		})
 	})
-	e.GET("/orders", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, engine.state)
-	})
 
-	e.POST("/orders", func(c echo.Context) error {
+	GetOrders := func(c echo.Context) error {
+		return c.JSON(http.StatusOK, engine.state)
+	}
+
+	InsertOrder := func(c echo.Context) error {
 		o := new(orderbook.Order)
 		if err := c.Bind(o); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -54,11 +70,11 @@ func NewServer(
 		e.Logger.Infof("order received: %+v", o)
 		engine.in <- o
 		return nil
-	})
+	}
 
-	e.DELETE("/orders", func(c echo.Context) error {
-		return c.String(http.StatusInternalServerError, "not impl!")
-	})
+	e.GET("/orders", GetOrders)
+	e.POST("/orders", InsertOrder)
+
 	engine.srv = e
 
 	engine.srv.Logger.Debugf("server created")
@@ -69,6 +85,7 @@ func NewServer(
 	return engine
 }
 
+// Run starts the engine at defaultPort
 func (eng *Engine) Run() error {
 	return eng.srv.Start(defaultPort)
 }
@@ -82,4 +99,14 @@ func handleState(e *Engine, status chan []*orderbook.Order) {
 			e.srv.Logger.Debugf("state: %+v\n", e.state)
 		}
 	}(e, status)
+}
+
+func count(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		path := metrics.GetOrCreateCounter(fmt.Sprintf(`requests_total{path=%s}`, c.Path()))
+		path.Inc()
+		counter := metrics.GetOrCreateCounter(`request_total`)
+		counter.Add(1)
+		return next(c)
+	}
 }
