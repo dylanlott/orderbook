@@ -15,3 +15,6 @@ run-docker: build-docker
 
 deploy: test
 	./deploy.sh
+
+compose:
+	docker-compose up -d
