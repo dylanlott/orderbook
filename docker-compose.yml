@@ -1,0 +1,25 @@
+version: '3'
+services:
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics
+    ports:
+      - 8428:8428
+  orderbook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 1323:1323
+    depends_on:
+      - victoria-metrics
+  grafana:
+    image: grafana/grafana
+    ports:
+      - 3030:3000
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+
+volumes:
+  grafana_data:
