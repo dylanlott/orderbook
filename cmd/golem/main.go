@@ -33,12 +33,13 @@ func main() {
 			in := make(chan *orderbook.Order)
 			out := make(chan *orderbook.Match)
 			status := make(chan []*orderbook.Order)
+			fills := make(chan []*orderbook.Order)
 
 			// Run the book
-			go orderbook.Run(ctx, accts, in, out, status)
+			go orderbook.Run(ctx, accts, in, out, fills, status)
 
 			// start the server to bolt up to the engine
-			engine := server.NewServer(accts, in, out, status)
+			engine := server.NewServer(accts, in, out, fills, status)
 
 			// run the server
 			return engine.Run()

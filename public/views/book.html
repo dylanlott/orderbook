@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Two Column Responsive Layout</title>
+	<style>
+		body {
+			font-family: Arial, sans-serif;
+			margin: 0;
+			padding: 0;
+		}
+
+		.container {
+			display: flex;
+			flex-wrap: wrap;
+		}
+
+		.column {
+			flex: 1;
+			border: 1px solid #000;
+			margin: 10px;
+			padding: 20px;
+			box-sizing: border-box;
+		}
+
+		@media (max-width: 767px) {
+			.column {
+				flex-basis: 100%;
+			}
+		}
+	</style>
+</head>
+<body>
+    <div class="container">
+        <pre>
+            ===================================================
+            ||  ██████   ██████  ██      ███████ ███    ███  ||
+            || ██       ██    ██ ██      ██      ████  ████  ||
+            || ██   ███ ██    ██ ██      █████   ██ ████ ██  ||
+            || ██    ██ ██    ██ ██      ██      ██  ██  ██  ||
+            ||  ██████   ██████  ███████ ███████ ██      ██  ||
+            ===================================================
+        </pre>
+    </div>
+	<div class="container">
+		<div class="column">
+			<h2>Buy</h2>
+		</div>
+		<div class="column">
+			<h2>Sell</h2>
+		</div>
+	</div>
+    <div style="margin: 10px;">
+        <h4>Submit an order</h4> 
+        <div>
+            <form action="/submit" method="post">
+                AccountID: <input type="text" name="accountID"><br>
+                Kind: 
+                <select name="kind">
+                    <option value="Limit">Limit</option>
+                    <option value="Market">Market</option>
+                </select><br>
+
+                Side: 
+                <select name="side">
+                    <option value="Buy">Buy</option>
+                    <option value="Sell">Sell</option>
+                </select><br>
+                Price: <input type="number" step="0.01" name="price"><br>
+                Open: <input type="number" step="1" name="open"><br>
+                <input type="submit" value="Submit">
+            </form>
+        </div>
+    </div>
+</body>
+</html>
