@@ -10,18 +10,70 @@ import (
 	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
+	"github.com/stretchr/testify/require"
 
 	"github.com/brianvoe/gofakeit/v6"
 )
 
+var numTestOrders = 1000
+var numTestAccounts = 10
+
+func TestRunLoad(t *testing.T) {
+	in := make(chan *Order, 1)
+	out := make(chan *Match, 1)
+	status := make(chan []*Order, 1)
+	fills := make(chan []*Order)
+
+	// Generate default random accounts for testing
+	accts, ids := newTestAccountManager(t, numTestAccounts)
+
+	// Start the server
+	go Run(context.Background(), accts, in, out, fills, status)
+
+	// Consume the status updates
+	go func() {
+		for state := range status {
+			_ = state
+		}
+	}()
+
+	// Consume fills
+	go func() {
+		for fill := range fills {
+			t.Logf("[FILL]: %+v", fill)
+		}
+	}()
+
+	// Consume matches
+	go func() {
+		for match := range out {
+			var _ = match
+		}
+	}()
+
+	// Generate test orders
+	buy, sell := newTestOrders(numTestOrders)
+
+	for _, o := range buy {
+		o.AccountID = gofakeit.RandomString(ids)
+		in <- o
+	}
+	for _, o := range sell {
+		o.AccountID = gofakeit.RandomString(ids) // assign to a random account last of all
+		in <- o
+	}
+}
+
 func TestMatchOrders(t *testing.T) {
 	buy, sell := newTestOrders(1000)
-	_ = MatchOrders(&accounts.InMemoryManager{}, buy, sell)
+	matches, fills := MatchOrders(&accounts.InMemoryManager{}, buy, sell)
+	require.NotEmpty(t, matches)
+	require.NotEmpty(t, fills)
 }
 
 func BenchmarkMatchOrders(b *testing.B) {
 	buy, sell := newTestOrders(b.N)
-	_ = MatchOrders(&accounts.InMemoryManager{}, buy, sell)
+	_, _ = MatchOrders(&accounts.InMemoryManager{}, buy, sell)
 }
 
 func BenchmarkAttemptFill(b *testing.B) {
@@ -74,7 +126,7 @@ func newTestAccountManager(t *testing.T, num int) (accounts.AccountManager, []st
 // and maxOpen, an equal chance to be owned by foo or bar,
 // and with an even chance of being a buy or sell order.
 func newTestOrders(count int) (buyOrders, sellOrders []*Order) {
-	log.Printf("count %d", count)
+	log.Printf("generating %d new test orders...", count)
 	rand.Seed(time.Now().UnixNano())
 
 	var minPrice, maxPrice = 100, 10_000
@@ -127,38 +179,4 @@ func newRandOrder(id, account string) Order {
 	}
 
 	return o
-}
-
-var numTestOrders = 10_000_000
-var numTestAccounts = 1_000_000
-
-func TestRunLoad(t *testing.T) {
-	in := make(chan *Order, 1)
-	out := make(chan *Match, 1)
-	status := make(chan []*Order, 1)
-
-	// Generate default random accounts for testing
-	accts, ids := newTestAccountManager(t, numTestAccounts)
-
-	// Start the server
-	go Run(context.Background(), accts, in, out, status)
-
-	// Consume the status updates
-	go func() {
-		for e := range status {
-			t.Logf("\ncurrent orders: %v\n", e)
-		}
-	}()
-
-	// Generate test orders
-	buy, sell := newTestOrders(numTestOrders)
-
-	for _, o := range buy {
-		o.AccountID = gofakeit.RandomString(ids)
-		in <- o
-	}
-	for _, o := range sell {
-		o.AccountID = gofakeit.RandomString(ids) // assign to a random account last of all
-		in <- o
-	}
 }

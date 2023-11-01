@@ -5,13 +5,11 @@ package orderbook
 
 import (
 	"context"
+	"log"
 	"sort"
-	"time"
 
 	"github.com/dylanlott/orderbook/pkg/accounts"
 )
-
-var delay time.Duration = time.Second * 1
 
 // Order is a struct for representing a simple order in the books.
 type Order struct {
@@ -34,6 +32,7 @@ type Match struct {
 	Price    uint64 // at what price was each unit purchased by the buyer from the seller
 	Quantity uint64 // how many units were transferred from seller to buyer
 	Total    uint64 // total = price * quantity
+	History  []*Match
 }
 
 // Orderbook is the core interface of the library.
@@ -52,11 +51,12 @@ func Run(
 	accounts accounts.AccountManager,
 	in chan *Order,
 	out chan *Match,
+	fills chan []*Order,
 	status chan []*Order,
 ) {
 	// NB: buy and sell are not accessible anywhere but here for safety.
 	var buy, sell []*Order
-	handleMatches(ctx, accounts, buy, sell, in, out, status)
+	handleMatches(ctx, accounts, buy, sell, in, out, fills, status)
 }
 
 // handleMatches is a blocking function that handles the matches.
@@ -67,16 +67,15 @@ func handleMatches(
 	buy, sell []*Order,
 	in chan *Order,
 	out chan *Match,
+	fillsCh chan []*Order,
 	status chan []*Order,
 ) {
-	for {
-		// feed off the orders that accumulated since the last loop
-		for o := range in {
-			if o.Side == "buy" {
-				buy = append(buy, o)
-			} else {
-				sell = append(sell, o)
-			}
+	// feed off the orders that accumulated since the last loop
+	for o := range in {
+		if o.Side == "buy" {
+			buy = append(buy, o)
+		} else {
+			sell = append(sell, o)
 		}
 		// create the orderlist for state updates
 		orderlist := []*Order{}
@@ -84,10 +83,13 @@ func handleMatches(
 		orderlist = append(orderlist, sell...)
 		status <- orderlist
 
-		// generate a list of matches and output them
-		matches := MatchOrders(accts, buy, sell)
+		matches, fills := MatchOrders(accts, buy, sell)
 		for _, match := range matches {
-			out <- &match
+			log.Printf("[MATCH DETECTED]: %+v", match)
+			out <- match
+		}
+		if len(fills) > 0 {
+			fillsCh <- fills
 		}
 	}
 }
@@ -99,7 +101,7 @@ func handleMatches(
 // matching sell options are exhausted,
 // * When it exhausts all f it ratchets up the buy index again and finds all matching
 // orders.
-func MatchOrders(accts accounts.AccountManager, buyOrders []*Order, sellOrders []*Order) []Match {
+func MatchOrders(accts accounts.AccountManager, buyOrders []*Order, sellOrders []*Order) ([]*Match, []*Order) {
 	sort.Slice(buyOrders, func(i, j int) bool {
 		return buyOrders[i].Price > buyOrders[j].Price
 	})
@@ -110,7 +112,8 @@ func MatchOrders(accts accounts.AccountManager, buyOrders []*Order, sellOrders [
 	// Initialize the index variables
 	buyIndex := 0
 	sellIndex := 0
-	var matches []Match
+	var matches []*Match
+	var fills []*Order
 
 	// Loop until there are no more Sell orders left
 	for sellIndex < len(sellOrders) {
@@ -119,12 +122,48 @@ func MatchOrders(accts accounts.AccountManager, buyOrders []*Order, sellOrders [
 			// Create a match and add it to the matches
 			sell := sellOrders[sellIndex]
 			buy := buyOrders[buyIndex]
-			m := Match{
-				Buy:   buy,
-				Sell:  sell,
-				Price: sell.Price,
+
+			available := sell.Open - sell.Filled
+			wanted := buy.Open - sell.Filled
+
+			var taken uint64 = 0
+
+			switch {
+			case available > wanted:
+				taken = wanted
+				sell.Filled += taken
+				buy.Filled += taken
+			case available < wanted:
+				taken = available
+				sell.Filled += taken
+				buy.Filled += taken
+			default: // availabel == wanted
+				taken = wanted
+				sell.Filled += taken
+				buy.Filled += taken
+			}
+
+			m := &Match{
+				Buy:      buy,
+				Sell:     sell,
+				Price:    sell.Price,
+				Quantity: taken,
+				Total:    taken * sell.Price,
 			}
 			matches = append(matches, m)
+
+			sell.History = append(sell.History, *m)
+			buy.History = append(buy.History, *m)
+
+			if sell.Filled == sell.Open {
+				sellOrders = append(sellOrders[:sellIndex], sellOrders[sellIndex+1:]...)
+				fills = append(fills, sell)
+			}
+			if buy.Filled == buy.Open {
+				buyOrders = append(buyOrders[:buyIndex], buyOrders[buyIndex+1:]...)
+				fills = append(fills, buy)
+			}
+
 			// Increment the Sell order index
 			sellIndex++
 		} else {
@@ -139,5 +178,5 @@ func MatchOrders(accts accounts.AccountManager, buyOrders []*Order, sellOrders [
 	}
 
 	// Return the list of filled orders
-	return matches
+	return matches, fills
 }
