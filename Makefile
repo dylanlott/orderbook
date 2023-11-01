@@ -18,3 +18,6 @@ deploy: test
 
 compose:
 	docker-compose up -d
+
+run:
+	go run cmd/golem/main.go
